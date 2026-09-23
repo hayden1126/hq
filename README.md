@@ -142,7 +142,13 @@ hq-state add REGISTRY.md SOURCES.md  # track private files (files, not directori
 hq-state commit -am "update registry"
 hq-state remote add origin <your private repo url>
 hq-state push -u origin HEAD
+hq-state sync --push "snapshot"      # commit all edits, plus new files in tracked directories
 ```
+
+`sync` suits a Claude Code `SessionEnd` hook: it snapshots every tracked file and adopts new files
+only inside a directory the overlay already tracks (a new memory note, a new local doc), never a new
+location. To version Claude Code's project memory for hq, move it to `.claude/memory/` (ignored by
+the code repo), symlink `~/.claude/projects/<slug>/memory` to it, and `hq-state add` its files once.
 
 Every other subcommand is plain git against the overlay (`status`, `diff`, `log`, `pull`). The two
 layers never cross. `hq-state add` refuses a file the code repo tracks or would publish, and

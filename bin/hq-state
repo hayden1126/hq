@@ -12,11 +12,13 @@
 #        hq-state restore <url>        clone an existing overlay onto this checkout;
 #                                      never overwrites a file already on disk
 #        hq-state add <file>...        track private files (files, not directories)
+#        hq-state sync [--push] [msg]  snapshot: commit edits to tracked files plus new
+#                                      private files in directories already tracked
 #        hq-state <git command> ...    anything else runs as git against the overlay:
 #                                      status, diff, commit -am, log, push, pull
 source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
 
-usage() { sed -n '11,17p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '11,19p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 require_overlay() {
     [[ -d "$HQ_STATE_DIR" ]] || die "no overlay at $HQ_STATE_DIR — run 'hq-state init' or 'hq-state restore <url>'"
@@ -77,11 +79,41 @@ cmd_add() {
     state_git add -f -- "$@"
 }
 
+# sync is the unattended snapshot (a session-end hook runs it). It commits edits
+# and deletions of tracked files, and adopts new files only inside a directory the
+# overlay already tracks, so a new memory note is picked up but no new location
+# is ever tracked without an explicit `add`. Each candidate must still pass
+# state_violation, so sync can never stage a publishable file.
+cmd_sync() {
+    local push=0 msg="" d f
+    for f in "$@"; do
+        if [[ "$f" == "--push" ]]; then push=1; else msg="${msg:-$f}"; fi
+    done
+    require_overlay
+    state_git add -u
+    while IFS= read -r d; do
+        [[ -d "$HQ_ROOT/$d" && "$d" != "." ]] || continue
+        while IFS= read -r f; do
+            [[ -z "$(state_violation "$f")" ]] && state_git add -f -- "$f"
+        done < <(find "$d" -maxdepth 1 -type f ! -name '*.pyc' | sed 's#^\./##')
+    done < <(state_git ls-files | xargs -r -n1 dirname | sort -u)
+    if state_git diff --cached --quiet; then
+        info "hq-state: no changes"
+    else
+        state_git commit -q -m "sync: ${msg:-snapshot} ($(date +'%F %T'))"
+        ok "hq-state: committed"
+    fi
+    if [[ $push == 1 ]]; then
+        if state_git push -q origin HEAD 2>/dev/null; then ok "hq-state: pushed"; else warn "hq-state: push failed (offline?)"; fi
+    fi
+}
+
 cd "$HQ_ROOT" || die "cannot cd to $HQ_ROOT"
 case "${1:-}" in
     ""|-h|--help) usage ;;
     init)    shift; cmd_init ;;
     restore) shift; cmd_restore "$@" ;;
     add)     shift; cmd_add "$@" ;;
+    sync)    shift; cmd_sync "$@" ;;
     *)       require_overlay; state_git "$@" ;;
 esac

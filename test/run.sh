@@ -873,6 +873,42 @@ test_state_passes_other_commands_to_git() {
     assert_eq "$("$BIN/hq-state" log --format=%s)" "track registry" "passthrough commit/log"
 }
 
+# sync is the session-end snapshot: it commits edits to tracked files and picks
+# up new private files inside directories the overlay already tracks (e.g. a new
+# memory note), but never starts tracking a file in a fresh location.
+test_state_sync_commits_edits_and_new_files_in_tracked_dirs() {
+    "$BIN/hq-bootstrap" >/dev/null
+    rm -rf "$T/hq/docs/local"; mkdir -p "$T/hq/docs/local"; echo one > "$T/hq/docs/local/a.md"
+    "$BIN/hq-state" init >/dev/null
+    "$BIN/hq-state" add REGISTRY.md docs/local/a.md >/dev/null
+    "$BIN/hq-state" commit -qm base
+    echo "edit" >> "$T/hq/REGISTRY.md"
+    echo two > "$T/hq/docs/local/b.md"
+    assert_ok "$BIN/hq-state" sync "snap"
+    assert_eq "$(state_git ls-files | sort | tr '\n' ' ')" "REGISTRY.md docs/local/a.md docs/local/b.md " "tracked after sync"
+    assert_eq "$(state_git status --porcelain)" "" "clean after sync"
+    assert_contains <(state_git log -1 --format=%s) "snap"
+}
+
+test_state_sync_ignores_new_files_outside_tracked_dirs() {
+    "$BIN/hq-bootstrap" >/dev/null
+    "$BIN/hq-state" init >/dev/null
+    "$BIN/hq-state" add REGISTRY.md >/dev/null
+    "$BIN/hq-state" commit -qm base
+    rm -rf "$T/hq/docs/local"; mkdir -p "$T/hq/docs/local"; echo x > "$T/hq/docs/local/new.md"
+    assert_ok "$BIN/hq-state" sync
+    assert_eq "$(state_git ls-files)" "REGISTRY.md" "no new location adopted"
+}
+
+test_state_sync_is_a_noop_when_clean() {
+    "$BIN/hq-bootstrap" >/dev/null
+    "$BIN/hq-state" init >/dev/null
+    "$BIN/hq-state" add REGISTRY.md >/dev/null
+    "$BIN/hq-state" commit -qm base
+    assert_ok "$BIN/hq-state" sync
+    assert_eq "$(state_git rev-list --count HEAD)" "1" "no empty commit"
+}
+
 test_state_init_refuses_an_existing_overlay() {
     "$BIN/hq-state" init >/dev/null
     assert_fails "$BIN/hq-state" init

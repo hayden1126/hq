@@ -36,6 +36,9 @@ docs/local/
 
 # Per-machine Claude Code hooks (they reference this machine's own sources and memory).
 .claude/hooks/
+# Claude Code project memory for hq, symlinked here from ~/.claude/projects/<slug>/memory so the
+# private overlay can version it.
+.claude/memory/
 __pycache__/
 
 # The private state overlay's git dir (bin/hq-state): a second repository over
