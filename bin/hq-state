@@ -96,7 +96,7 @@ cmd_sync() {
         while IFS= read -r f; do
             [[ -z "$(state_violation "$f")" ]] && state_git add -f -- "$f"
         done < <(find "$d" -maxdepth 1 -type f ! -name '*.pyc' | sed 's#^\./##')
-    done < <(state_git ls-files | xargs -r -n1 dirname | sort -u)
+    done < <(state_git ls-files -z | while IFS= read -r -d '' f; do dirname -- "$f"; done | sort -u)
     if state_git diff --cached --quiet; then
         info "hq-state: no changes"
     else

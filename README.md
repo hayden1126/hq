@@ -139,7 +139,6 @@ its git dir is `.state.git/` (ignored by the code repo), and it tracks only the 
 ```bash
 hq-state init                        # once, on the first machine
 hq-state add REGISTRY.md SOURCES.md  # track private files (files, not directories)
-hq-state commit -am "update registry"
 hq-state remote add origin <your private repo url>
 hq-state push -u origin HEAD
 hq-state sync --push "snapshot"      # commit all edits, plus new files in tracked directories

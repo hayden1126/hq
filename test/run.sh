@@ -890,6 +890,17 @@ test_state_sync_commits_edits_and_new_files_in_tracked_dirs() {
     assert_contains <(state_git log -1 --format=%s) "snap"
 }
 
+test_state_sync_handles_spaces_in_paths() {
+    "$BIN/hq-bootstrap" >/dev/null
+    rm -rf "$T/hq/docs/local"; mkdir -p "$T/hq/docs/local/my notes"; echo a > "$T/hq/docs/local/my notes/a b.md"; echo k > "$T/hq/docs/local/合気道.md"
+    "$BIN/hq-state" init >/dev/null
+    "$BIN/hq-state" add "docs/local/my notes/a b.md" "docs/local/合気道.md" >/dev/null
+    "$BIN/hq-state" commit -qm base
+    echo c > "$T/hq/docs/local/my notes/c d.md"; echo k2 > "$T/hq/docs/local/道場.md"
+    assert_ok "$BIN/hq-state" sync
+    assert_eq "$(state_git -c core.quotePath=false ls-files | LC_ALL=C sort | tr '\n' '|')" "docs/local/my notes/a b.md|docs/local/my notes/c d.md|docs/local/合気道.md|docs/local/道場.md|" "spaced and non-ASCII paths"
+}
+
 test_state_sync_ignores_new_files_outside_tracked_dirs() {
     "$BIN/hq-bootstrap" >/dev/null
     "$BIN/hq-state" init >/dev/null

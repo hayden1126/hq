@@ -108,7 +108,7 @@ format. Optional: a fresh clone has none.
   agent needs. It only prints — it never reads a source, calls MCP, or dispatches.
 - Two repos share this directory. Code changes are ordinary commits to the code repo; the pre-push
   hook runs `hq-publish-check` and blocks a leak. Changes to the gitignored private files go to the
-  private overlay instead: `hq-state commit -am "..."` then `hq-state push`. Never add a code file to
+  private overlay instead: `hq-state sync --push "..."` (or `hq-state add <file>` for a new location). Never add a code file to
   the overlay, or a private file to the code repo.
 
 ## Rules
