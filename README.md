@@ -41,7 +41,7 @@ your copy from it on first run. Edit the copy.
 
 ```bash
 git clone https://github.com/hayden1126/hq.git ~/hq
-~/hq/install.sh          # creates the buckets, links the skill, adds bin/ to PATH
+~/hq/install.sh          # creates the buckets, links the skill, adds bin/ to PATH, enables the pre-push gate
 ```
 
 `install.sh` is idempotent and never overwrites an existing directory. It runs `hq-bootstrap`, which
@@ -62,6 +62,8 @@ too: the PATH line points at wherever you cloned.
 | `hq-sync-vault [name]` | refresh observable facts in a career vault, if you keep one |
 | `hq-flow [name]` | resolve a declared cross-home flow to its source, target, and rules |
 | `hq-bootstrap` | create the buckets (run by `install.sh`) |
+| `hq-state <cmd>` | version the private files in a separate private repo (see below) |
+| `hq-publish-check` | pre-publish gate: no private strings, private files ignored, layers disjoint |
 | `hq-migrate-cc-state <old> <new>` | move Claude Code's per-project state between two paths |
 | `./pending-cc-migration.sh` | replay migrations `hq-move` had to defer (see below) |
 
@@ -126,6 +128,45 @@ Until you do, the moved project's history and trust settings still point at the 
 `REGISTRY.md` is this machine's project list and is **gitignored** — it names real work and may
 point at private material. `REGISTRY.example.md` ships in its place and shows the format. Paths are
 `$HOME`-relative so the file survives the directory moving.
+
+## Private state: a second repo over the same tree
+
+hq's per-machine files (`REGISTRY.md`, `SOURCES.md`, `CLAUDE.md`, `layout.toml` and the rest) are
+gitignored, so the code repo never sees them. That keeps them out of any public history, but it also
+leaves them unversioned. `hq-state` fixes that with a second git repository over the same work tree:
+its git dir is `.state.git/` (ignored by the code repo), and it tracks only the files you add to it.
+
+```bash
+hq-state init                        # once, on the first machine
+hq-state add REGISTRY.md SOURCES.md  # track private files (files, not directories)
+hq-state commit -am "update registry"
+hq-state remote add origin <your private repo url>
+hq-state push -u origin HEAD
+```
+
+Every other subcommand is plain git against the overlay (`status`, `diff`, `log`, `pull`). The two
+layers never cross. `hq-state add` refuses a file the code repo tracks or would publish, and
+`hq-publish-check` fails if the overlay ever tracks one, so a private file cannot reach the public
+history and a code file cannot fork into the private one.
+
+**On a new machine,** restore the overlay right after cloning:
+
+```bash
+git clone https://github.com/hayden1126/hq.git ~/hq
+~/hq/bin/hq-state restore <your private repo url>
+~/hq/install.sh
+```
+
+`restore` never overwrites a file already on disk; one that differs shows up in `hq-state diff`.
+Restoring before `install.sh` means the bootstrap finds your real files and seeds nothing.
+
+## The pre-push gate
+
+`install.sh` sets `core.hooksPath=hooks`, which runs the tracked `hooks/pre-push` on every push of the
+code repo. It blocks the push unless `hq-publish-check` passes on the tree and no outgoing commit
+carries a denylisted string in its message or added lines. If you keep an older, private history of
+the code in the same clone, tag its tip `private-history`: the hook refuses any commit that shares
+history with it, so a stray `git push --tags` cannot publish it.
 
 ## Optional: a career vault
 

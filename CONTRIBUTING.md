@@ -7,11 +7,12 @@ that way.
 
 ```bash
 ./test/run.sh                                   # the full suite (plain shell, no deps)
-shellcheck bin/hq-* lib/hq.sh install.sh pending-cc-migration.sh
+shellcheck bin/hq-* lib/hq.sh install.sh pending-cc-migration.sh hooks/pre-push
 ./bin/hq-publish-check                           # no private data in the publishable tree
 ```
 
-All three must pass. `hq-publish-check` also runs as part of `test/run.sh`.
+All three must pass. `hq-publish-check` also runs as part of `test/run.sh`, and the pre-push hook
+(`hooks/pre-push`, enabled by `install.sh`) runs it again on every push.
 
 ## Ground rules
 

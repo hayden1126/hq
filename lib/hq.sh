@@ -9,6 +9,9 @@ HQ_LAYOUT="$HQ_ROOT/layout.toml"
 HQ_CC_QUEUE="$HQ_ROOT/pending-cc-migration.tsv"
 HQ_SOURCES="$HQ_ROOT/SOURCES.md"
 HQ_FLOWS="$HQ_ROOT/FLOWS.md"
+# The private state overlay: a second git dir over this same work tree that
+# tracks only files the code repo ignores. Optional; see bin/hq-state.
+HQ_STATE_DIR="$HQ_ROOT/.state.git"
 
 die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 warn() { printf '\033[33mwarn:\033[0m  %s\n' "$*" >&2; }
@@ -321,4 +324,20 @@ assert_no_processes_in() {
             awk 'NR > 1 { print "  pid " $2 " (" $1 ")" }' | sort -u)"
     fi
     [[ -z "$blockers" ]] || die "processes are running inside $dir:"$'\n'"$blockers"
+}
+
+# --- private state overlay ------------------------------------------------
+
+# state_git ARGS... — git against the private overlay, over the hq work tree.
+state_git() { git --git-dir="$HQ_STATE_DIR" --work-tree="$HQ_ROOT" "$@"; }
+
+# state_violation PATH — why PATH may not be tracked by the overlay, or nothing
+# when it may. The layers stay disjoint only if every overlay file is one the
+# code repo neither tracks nor would publish, i.e. one it ignores.
+state_violation() {
+    if git -C "$HQ_ROOT" ls-files --error-unmatch -- "$1" >/dev/null 2>&1; then
+        echo "tracked by the code repo"
+    elif ! git -C "$HQ_ROOT" check-ignore -q -- "$1"; then
+        echo "not ignored by the code repo, so it would be published"
+    fi
 }

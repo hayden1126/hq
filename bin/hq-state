@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# The private state overlay: version this machine's private files (the ones the
+# code repo gitignores) in a second, private git repository over the same work
+# tree, so the public code history never sees them.
+#
+# The overlay's git dir is .state.git/ inside the hq checkout (ignored by the code
+# repo). It tracks only what you add to it, never untracked files, and `add`
+# refuses any file the code repo tracks or would publish, so the two layers stay
+# disjoint. hq-publish-check enforces the same rule over the whole overlay.
+#
+# usage: hq-state init                 start an empty overlay for this checkout
+#        hq-state restore <url>        clone an existing overlay onto this checkout;
+#                                      never overwrites a file already on disk
+#        hq-state add <file>...        track private files (files, not directories)
+#        hq-state <git command> ...    anything else runs as git against the overlay:
+#                                      status, diff, commit -am, log, push, pull
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+usage() { sed -n '11,17p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+require_overlay() {
+    [[ -d "$HQ_STATE_DIR" ]] || die "no overlay at $HQ_STATE_DIR — run 'hq-state init' or 'hq-state restore <url>'"
+}
+
+refuse_existing_overlay() {
+    [[ ! -e "$HQ_STATE_DIR" ]] || die "an overlay already exists at $HQ_STATE_DIR"
+}
+
+# A git dir with no work tree of its own: every call names it via state_git.
+# Untracked files are hidden because the overlay tracks an explicit set, and
+# the rest of the tree belongs to the code repo.
+configure() {
+    state_git config core.bare false
+    state_git config status.showUntrackedFiles no
+}
+
+cmd_init() {
+    refuse_existing_overlay
+    git init -q --bare "$HQ_STATE_DIR"
+    configure
+    ok "empty overlay at $HQ_STATE_DIR; track files with 'hq-state add <file>'"
+}
+
+cmd_restore() {
+    local url="${1:-}" branch
+    [[ -n "$url" ]] || usage 1
+    refuse_existing_overlay
+    git clone -q --bare "$url" "$HQ_STATE_DIR"
+    configure
+    # A bare clone maps branches onto themselves; give it ordinary
+    # remote-tracking refs and an upstream so fetch/pull/push behave normally.
+    branch="$(state_git symbolic-ref --short HEAD)"
+    state_git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+    state_git fetch -q origin
+    state_git branch -q -u "origin/$branch" "$branch"
+    # Index from HEAD, then write only the files missing on disk. checkout-index
+    # without -f never overwrites, so a file install.sh already seeded (or one
+    # you edited) survives and shows up in `hq-state diff` to reconcile.
+    state_git read-tree HEAD
+    state_git checkout-index -a 2>/dev/null || true
+    ok "overlay restored from $url"
+    state_git status --short
+}
+
+cmd_add() {
+    local f why bad=0
+    [[ $# -gt 0 ]] || usage 1
+    require_overlay
+    for f in "$@"; do
+        [[ -f "$HQ_ROOT/$f" ]] || { warn "not a file: $f (add files individually)"; bad=1; continue; }
+        why="$(state_violation "$f")"
+        [[ -z "$why" ]] || { warn "refusing $f: $why"; bad=1; }
+    done
+    [[ $bad == 0 ]] || die "nothing added: the overlay holds only files the code repo ignores"
+    # -f: these files are ignored by the code repo's .gitignore, which also
+    # applies to the overlay because the two share a work tree.
+    state_git add -f -- "$@"
+}
+
+cd "$HQ_ROOT" || die "cannot cd to $HQ_ROOT"
+case "${1:-}" in
+    ""|-h|--help) usage ;;
+    init)    shift; cmd_init ;;
+    restore) shift; cmd_restore "$@" ;;
+    add)     shift; cmd_add "$@" ;;
+    *)       require_overlay; state_git "$@" ;;
+esac

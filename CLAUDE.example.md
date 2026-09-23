@@ -106,6 +106,10 @@ format. Optional: a fresh clone has none.
   repo-specific case of the vault gate; a flow into vault applies the same gate from any source.
 - `hq-flow [name]` resolves a declared cross-home flow to the source, target, and governing rules an
   agent needs. It only prints — it never reads a source, calls MCP, or dispatches.
+- Two repos share this directory. Code changes are ordinary commits to the code repo; the pre-push
+  hook runs `hq-publish-check` and blocks a leak. Changes to the gitignored private files go to the
+  private overlay instead: `hq-state commit -am "..."` then `hq-state push`. Never add a code file to
+  the overlay, or a private file to the code repo.
 
 ## Rules
 

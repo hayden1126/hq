@@ -38,6 +38,10 @@ docs/local/
 .claude/hooks/
 __pycache__/
 
+# The private state overlay's git dir (bin/hq-state): a second repository over
+# this work tree that versions the private files above. Never part of the code.
+.state.git
+
 # OS / editor cruft
 .DS_Store
 *.swp

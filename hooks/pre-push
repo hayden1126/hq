@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Pre-push gate for the code repo, wired in by install.sh (core.hooksPath=hooks).
+# Blocks the push unless:
+#   1. the tree passes hq-publish-check (no private strings, private files ignored,
+#      private overlay disjoint from the code);
+#   2. no outgoing commit carries a denylisted string in its message or patch;
+#   3. no outgoing commit shares history with the tag `private-history`, if you
+#      keep one: a local-only record of a past that must never be published.
+#
+# git runs this with <remote> <url> as arguments and one line per ref on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+set -euo pipefail
+
+remote="$1"
+root="$(git rev-parse --show-toplevel)"
+check="$root/bin/hq-publish-check"
+fenced=refs/tags/private-history
+
+"$check" >/dev/null || { echo "pre-push: hq-publish-check failed; run it to see why" >&2; exit 1; }
+
+while read -r lref lsha _ rsha; do
+    [[ "$lsha" =~ ^0+$ ]] && continue           # a deletion pushes no commits
+    if git rev-parse -q --verify "$fenced" >/dev/null &&
+       git merge-base "$lsha" "$fenced" >/dev/null 2>&1; then
+        echo "pre-push: $lref shares history with $fenced; refusing" >&2
+        exit 1
+    fi
+    # New ref, or a remote tip we have not fetched: everything not yet on the remote.
+    if [[ "$rsha" =~ ^0+$ ]] || ! git cat-file -e "$rsha^{commit}" 2>/dev/null; then
+        range=("$lsha" --not --remotes="$remote")
+    else
+        range=("$rsha..$lsha")
+    fi
+    "$check" --commits "${range[@]}" >/dev/null ||
+        { echo "pre-push: $lref: an outgoing commit carries a private string" >&2; exit 1; }
+done

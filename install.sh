@@ -6,6 +6,13 @@ HQ_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 "$HQ_ROOT/bin/hq-bootstrap"
 
+# The pre-push gate (hooks/pre-push runs hq-publish-check). Git does not version
+# hook wiring, so point this clone's hooks at the tracked hooks/ directory.
+if git -C "$HQ_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "$HQ_ROOT" config core.hooksPath hooks
+    echo "✓ pre-push gate enabled (core.hooksPath=hooks)"
+fi
+
 # The routing skill. hq ships and installs its own, and deliberately knows
 # nothing about whatever else manages ~/.claude — per-entry linking means a
 # config repo managing that directory will leave this alone.

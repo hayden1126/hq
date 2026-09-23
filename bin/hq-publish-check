@@ -5,6 +5,13 @@
 # "Publishable" means the set `git add -A` would stage: tracked files plus
 # untracked-but-not-ignored ones. Every gitignored private map is excluded by
 # construction, so this scans exactly what a push would expose.
+#
+# With --commits <rev-list args>, it instead scans the commits in that range
+# (messages and added lines) against the denylist. The pre-push hook uses this,
+# because a tree can be clean while a commit being pushed still carries a leak.
+#
+# usage: hq-publish-check
+#        hq-publish-check --commits <rev-list args>
 source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
 
 cd "$HQ_ROOT" || die "cannot cd to $HQ_ROOT"
@@ -13,29 +20,49 @@ git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository: $HQ_ROOT"
 
 fail=0
 
+# Private strings that must never reach a published file. These are
+# user-specific (your account addresses, account ids, private project or client
+# names), so they live in a gitignored `.publish-denylist` (one extended-regex
+# per line, `#` comments and blank lines ignored), NOT in this published script,
+# which would otherwise leak them itself. See `.publish-denylist.example`.
+denylist="$HQ_ROOT/.publish-denylist"
+patterns=()
+if [[ -f "$denylist" ]]; then
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// /}" ]] && continue
+        patterns+=("$line")
+    done < "$denylist"
+fi
+
+if [[ "${1:-}" == "--commits" ]]; then
+    shift
+    [[ $# -gt 0 ]] || die "--commits needs a revision range"
+    # Messages, plus only the added lines of each patch: a removed line is either
+    # already public or pushed in an earlier commit of this same range.
+    outgoing="$(git log --format=%B "$@"; git log -p --format= "$@" | grep '^+' || true)"
+    for pat in ${patterns[@]+"${patterns[@]}"}; do
+        m="$(grep -iE -- "$pat" <<<"$outgoing")" || continue
+        warn "leak: '$pat' in an outgoing commit:"
+        printf '  %s\n' "$m" >&2
+        fail=1
+    done
+    [[ $fail == 0 ]] || die "outgoing commits carry private strings: do not push"
+    ok "outgoing commits clean (${#patterns[@]} patterns)"
+    exit 0
+fi
+
 # The publishable file set: what `git add -A` would stage.
 publishable=()
 while IFS= read -r f; do
     publishable+=("$f")
 done < <(git ls-files --cached --others --exclude-standard)
 
-# 1. Private strings that must never reach a published file. These are
-#    user-specific (your account addresses, account ids, private project or
-#    client names), so they live in a gitignored `.publish-denylist` — one
-#    extended-regex per line, `#` comments and blank lines ignored — NOT in this
-#    published script, which would otherwise leak them itself. See
-#    `.publish-denylist.example` for the format.
+# 1. Scan the publishable file set.
 info "== scanning publishable files for private strings =="
-denylist="$HQ_ROOT/.publish-denylist"
 if [[ -f "$denylist" ]]; then
-    patterns=()
-    while IFS= read -r line; do
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "${line// /}" ]] && continue
-        patterns+=("$line")
-    done < "$denylist"
     leaked=0
-    for pat in "${patterns[@]}"; do
+    for pat in ${patterns[@]+"${patterns[@]}"}; do
         hits=""
         for f in "${publishable[@]}"; do
             [[ -f "$f" ]] || continue
@@ -59,7 +86,7 @@ info ""
 info "== private files must be gitignored =="
 private=(REGISTRY.md SOURCES.md FLOWS.md RESOURCES.md STATUS.md .mcp.json \
          CLAUDE.md layout.toml pending-cc-migration.tsv .claude/settings.local.json \
-         .publish-denylist)
+         .publish-denylist .state.git)
 allignored=1
 for f in "${private[@]}"; do
     git check-ignore -q -- "$f" && continue
@@ -82,6 +109,23 @@ for twin in REGISTRY.example.md SOURCES.example.md FLOWS.example.md \
     [[ -f "$twin" ]] || { warn "missing example twin: $twin"; fail=1; missing=1; }
 done
 [[ $missing == 0 ]] && ok "all example twins present"
+
+# 4. The private overlay (bin/hq-state), when there is one, must stay disjoint
+#    from the code: every file it tracks is one the code repo ignores.
+info ""
+info "== private overlay is disjoint from the code =="
+if [[ -d "$HQ_STATE_DIR" ]]; then
+    crossed=0
+    while IFS= read -r f; do
+        why="$(state_violation "$f")"
+        [[ -n "$why" ]] || continue
+        warn "overlay tracks $f: $why"
+        fail=1; crossed=1
+    done < <(state_git ls-files)
+    [[ $crossed == 0 ]] && ok "overlay tracks only ignored files ($(state_git ls-files | wc -l | tr -d ' ') files)"
+else
+    info "no private overlay (skipped)"
+fi
 
 info ""
 if [[ $fail == 0 ]]; then ok "publish check passed"; else die "publish check FAILED — do not publish"; fi

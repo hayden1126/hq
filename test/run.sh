@@ -38,7 +38,11 @@ setup() {
     T="$(mktemp -d)"
     cp -r "$REPO" "$T/hq"
     rm -f "$T/hq/REGISTRY.md" "$T/hq/FLOWS.md" "$T/hq/SOURCES.md" "$T/hq/pending-cc-migration.tsv"
+    rm -rf "$T/hq/.state.git"
     export HOME="$T" HQ_ROOT="$T/hq"
+    # $HOME is the sandbox, so git has no identity; tests that commit need one.
+    export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid \
+           GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
     unset HQ_ASSUME_CLAUDE_RUNNING
     BIN="$T/hq/bin"
     cd /                       # never run a move from inside the tree under test
@@ -833,6 +837,161 @@ REG
 # leak before the repo is made public.
 test_publish_check_passes_on_the_real_repo() {
     assert_ok env HQ_ROOT="$REPO" "$REPO/bin/hq-publish-check"
+}
+
+# --- private state overlay ----------------------------------------------------
+
+# The overlay is a second git dir over the same work tree, holding only the
+# files the code repo ignores. These run against the sandbox copy, which carries
+# the real repo's .git, so `git -C "$T/hq"` is the code repo.
+state_git() { git --git-dir="$T/hq/.state.git" --work-tree="$T/hq" "$@"; }
+
+test_state_add_tracks_an_ignored_private_file() {
+    "$BIN/hq-bootstrap" >/dev/null
+    assert_ok "$BIN/hq-state" init
+    assert_ok "$BIN/hq-state" add REGISTRY.md
+    assert_eq "$(state_git ls-files)" "REGISTRY.md" "overlay tracked set"
+}
+
+test_state_add_refuses_a_code_file() {
+    "$BIN/hq-state" init >/dev/null
+    assert_fails "$BIN/hq-state" add README.md
+    assert_eq "$(state_git ls-files)" "" "a refused add must track nothing"
+}
+
+test_state_add_refuses_a_publishable_untracked_file() {
+    "$BIN/hq-state" init >/dev/null
+    echo scratch > "$T/hq/notes.txt"
+    assert_fails "$BIN/hq-state" add notes.txt
+}
+
+test_state_passes_other_commands_to_git() {
+    "$BIN/hq-bootstrap" >/dev/null
+    "$BIN/hq-state" init >/dev/null
+    "$BIN/hq-state" add REGISTRY.md >/dev/null
+    assert_ok "$BIN/hq-state" commit -qm "track registry"
+    assert_eq "$("$BIN/hq-state" log --format=%s)" "track registry" "passthrough commit/log"
+}
+
+test_state_init_refuses_an_existing_overlay() {
+    "$BIN/hq-state" init >/dev/null
+    assert_fails "$BIN/hq-state" init
+}
+
+# A restore lands on a fresh clone that install.sh may already have seeded, so
+# it must never overwrite a file on disk: missing files appear, existing ones
+# stay and show up as a diff to reconcile.
+test_state_restore_populates_without_overwriting() {
+    "$BIN/hq-bootstrap" >/dev/null
+    seed_sources
+    "$BIN/hq-state" init >/dev/null
+    "$BIN/hq-state" add REGISTRY.md SOURCES.md >/dev/null
+    "$BIN/hq-state" commit -qm "state"
+    git clone -q --bare "$T/hq/.state.git" "$T/remote.git"
+    rm -rf "$T/hq/.state.git" "$T/hq/SOURCES.md"
+    echo "local edit" >> "$T/hq/REGISTRY.md"
+    assert_ok "$BIN/hq-state" restore "$T/remote.git"
+    assert_contains "$T/hq/SOURCES.md" "gmail-demo"
+    assert_contains "$T/hq/REGISTRY.md" "local edit"
+    assert_eq "$(state_git diff --name-only)" "REGISTRY.md" "pre-existing file shows as a diff"
+    assert_eq "$(state_git config --get remote.origin.url)" "$T/remote.git" "origin set"
+}
+
+test_state_restore_refuses_an_existing_overlay() {
+    "$BIN/hq-state" init >/dev/null
+    assert_fails "$BIN/hq-state" restore "$T/nowhere.git"
+}
+
+# The two layers must never cross. The overlay is written to with raw git here
+# to simulate a mistake the wrapper would have refused.
+test_publish_check_passes_with_a_disjoint_overlay() {
+    "$BIN/hq-bootstrap" >/dev/null
+    "$BIN/hq-state" init >/dev/null
+    "$BIN/hq-state" add REGISTRY.md >/dev/null
+    assert_ok "$BIN/hq-publish-check"
+}
+
+test_publish_check_fails_on_a_file_tracked_by_both_layers() {
+    "$BIN/hq-state" init >/dev/null
+    state_git add -f README.md
+    assert_fails "$BIN/hq-publish-check"
+}
+
+test_publish_check_fails_on_a_publishable_file_in_the_overlay() {
+    "$BIN/hq-state" init >/dev/null
+    echo scratch > "$T/hq/notes.txt"
+    state_git add -f notes.txt
+    rm "$T/hq/notes.txt"     # isolate the overlay check from the tree scan
+    assert_fails "$BIN/hq-publish-check"
+}
+
+test_publish_check_requires_the_overlay_dir_ignored() {
+    grep -v '^\.state\.git$' "$T/hq/.gitignore" > "$T/gi" && mv "$T/gi" "$T/hq/.gitignore"
+    assert_fails "$BIN/hq-publish-check"
+}
+
+# --- pre-push gate -------------------------------------------------------------
+
+# commit_on <parent|-> <message>: a commit of HEAD's tree, printed by sha.
+commit_on() {
+    local parent=()
+    [[ "$1" != "-" ]] && parent=(-p "$1")
+    git -C "$T/hq" commit-tree "${parent[@]}" -m "$2" "HEAD^{tree}"
+}
+
+pre_push() { printf '%s\n' "$1" | (cd "$T/hq" && hooks/pre-push origin url); }
+
+test_pre_push_allows_a_clean_commit() {
+    local base new
+    base="$(git -C "$T/hq" rev-parse HEAD)"
+    new="$(commit_on "$base" "an ordinary change")"
+    assert_ok pre_push "refs/heads/master $new refs/heads/master $base"
+}
+
+test_pre_push_blocks_a_denylisted_commit_message() {
+    local base new
+    echo 'zanzibarproj' > "$T/hq/.publish-denylist"
+    base="$(git -C "$T/hq" rev-parse HEAD)"
+    new="$(commit_on "$base" "wire up zanzibarproj")"
+    assert_fails pre_push "refs/heads/master $new refs/heads/master $base"
+}
+
+test_pre_push_blocks_a_denylisted_added_line() {
+    local base new
+    echo 'zanzibarproj' > "$T/hq/.publish-denylist"
+    base="$(git -C "$T/hq" rev-parse HEAD)"
+    echo "see zanzibarproj" > "$T/hq/leak.txt"
+    git -C "$T/hq" add leak.txt && git -C "$T/hq" commit -qm "innocent message"
+    new="$(git -C "$T/hq" rev-parse HEAD)"
+    git -C "$T/hq" rm -q leak.txt && git -C "$T/hq" commit -qm "cleanup"
+    assert_fails pre_push "refs/heads/master $new refs/heads/master $base"
+}
+
+test_pre_push_blocks_history_shared_with_private_history() {
+    local root child
+    root="$(commit_on - "old private past")"
+    git -C "$T/hq" tag -f private-history "$root" >/dev/null
+    child="$(commit_on "$root" "built on it")"
+    assert_fails pre_push "refs/heads/leak $child refs/heads/leak 0000000000000000000000000000000000000000"
+    assert_fails pre_push "refs/tags/private-history $root refs/tags/private-history 0000000000000000000000000000000000000000"
+}
+
+test_pre_push_blocks_when_the_tree_check_fails() {
+    local base new
+    base="$(git -C "$T/hq" rev-parse HEAD)"
+    new="$(commit_on "$base" "an ordinary change")"
+    grep -v '^REGISTRY\.md$' "$T/hq/.gitignore" > "$T/gi" && mv "$T/gi" "$T/hq/.gitignore"
+    assert_fails pre_push "refs/heads/master $new refs/heads/master $base"
+}
+
+test_pre_push_ignores_a_branch_deletion() {
+    assert_ok pre_push "(delete) 0000000000000000000000000000000000000000 refs/heads/gone $(git -C "$T/hq" rev-parse HEAD)"
+}
+
+test_install_wires_the_pre_push_hook_idempotently() {
+    "$T/hq/install.sh" >/dev/null
+    "$T/hq/install.sh" >/dev/null
+    assert_eq "$(git -C "$T/hq" config --get-all core.hooksPath)" "hooks" "hooksPath set once"
 }
 
 # --- runner ---
