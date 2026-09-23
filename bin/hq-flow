@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Resolve a declared cross-home flow to the concrete parameters an agent needs to
+# run it, and print them.
+#
+# A flow is a directed source -> target: hq reads the SOURCE with its own creds,
+# then dispatches an agent rooted in the TARGET so the target's own rules govern
+# the write. This script only ever RESOLVES and PRINTS. It never reads a source,
+# never calls MCP, and never spawns an agent — that is the caller's job, done in
+# the hq session with the tools and cwd named here. FLOWS.md is the map; a flow's
+# tokens resolve against REGISTRY.md (projects) and SOURCES.md (external servers).
+#
+# usage: hq-flow [name]
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+require_flows
+
+# The tool family hq reads a source with, derived from how the source resolved
+# unless the flow pins it with `read-with`.
+reader_for() {
+    local kind="$1" locator="$2" pinned="$3"
+    if [[ -n "$pinned" ]]; then printf '%s' "$pinned"; return; fi
+    case "$kind" in
+        mcp) printf 'mcp__%s__*' "$locator" ;;
+        *)   printf 'Read/Grep/Glob' ;;
+    esac
+}
+
+# The rules that govern the write in the target: the target's own CLAUDE.md when
+# it has one, otherwise the global CLAUDE.md, plus the durable docs the registry
+# records. Many projects carry no CLAUDE.md and run on the global one, so naming
+# a file that is not there would misdirect the agent.
+rules_for() {
+    local gov="$1" target_abs="$2" tname="$3" docs base
+    if [[ "$gov" == vault-gate ]]; then
+        printf '%s/CLAUDE.md (vault gate: observable + cited, "> NEEDS INPUT" for evaluative, never commit, leave the diff)' "$HOME/vault"
+        return
+    fi
+    docs="$(reg_field "$tname" docs)"
+    if [[ -f "$target_abs/CLAUDE.md" ]]; then
+        base="$target_abs/CLAUDE.md"
+    else
+        base="the global ~/.claude/CLAUDE.md (this project has no CLAUDE.md of its own)"
+    fi
+    printf '%s%s' "$base" "${docs:+ + $docs}"
+}
+
+show_one() {
+    local name="$1"
+    flow_has "$name" || die "no such flow: $name"
+
+    local src tgt scope gov readwith
+    src="$(flow_field "$name" source)"
+    tgt="$(flow_field "$name" target)"
+    scope="$(flow_field "$name" scope)"
+    gov="$(flow_field "$name" governance)"; [[ -n "$gov" ]] || gov="target-rules"
+    readwith="$(flow_field "$name" read-with)"
+
+    info "flow: $name"
+    info "direction: $src -> $tgt"
+
+    local sres skind sloc reader
+    if sres="$(flow_resolve_source "$src")"; then
+        skind="${sres%%$'\t'*}"; sloc="${sres#*$'\t'}"
+        reader="$(reader_for "$skind" "$sloc" "$readwith")"
+        info "source: $src ($skind) -> $sloc  [read with: $reader]"
+    else
+        warn "source: $src does not resolve to a live project, known SOURCES server, or existing path"
+        return 1
+    fi
+
+    local tabs
+    if tabs="$(flow_resolve_target "$tgt")"; then
+        info "target: $tgt -> $tabs"
+    else
+        warn "target: $tgt resolves to no live project or vault"
+        return 1
+    fi
+
+    info "governance: $gov"
+    [[ -n "$scope" ]] && info "scope: $scope"
+
+    info ""
+    info "dispatch (run from this hq session):"
+    info "  1. read the source with: $reader"
+    info "  2. dispatch an agent rooted in: $tabs"
+    info "     governed by: $(rules_for "$gov" "$tabs" "$tgt")"
+    return 0
+}
+
+# One-line summary for the listing; DEAD when either side fails to resolve.
+summary_one() {
+    local name="$1" src tgt gov tag=""
+    src="$(flow_field "$name" source)"
+    tgt="$(flow_field "$name" target)"
+    gov="$(flow_field "$name" governance)"; [[ -n "$gov" ]] || gov="target-rules"
+    flow_resolve_source "$src" >/dev/null || tag="  DEAD"
+    flow_resolve_target "$tgt" >/dev/null || tag="  DEAD"
+    printf '%s: %s -> %s [%s]%s\n' "$name" "$src" "$tgt" "$gov" "$tag"
+}
+
+rc=0
+if [[ -n "${1:-}" ]]; then
+    show_one "$1" || rc=1
+else
+    while read -r n; do
+        [[ -n "$n" ]] || continue
+        line="$(summary_one "$n")"
+        info "$line"
+        [[ "$line" == *DEAD ]] && rc=1
+    done < <(flow_names)
+fi
+exit $rc

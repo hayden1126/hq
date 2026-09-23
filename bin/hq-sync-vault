@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Report which vault project entries have fallen behind their repo.
+#
+# This script only ever REPORTS. Writing into the vault is done by an agent
+# governed by the vault's own rules, because the split matters: observable facts
+# (versions, dates, languages) may be written with a citation, while anything
+# evaluative must become a "> NEEDS INPUT" line for a human. A shell script
+# cannot tell those apart, so it does not try.
+#
+# usage: hq-sync-vault [name]
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+[[ -d "$HOME/vault/projects" ]] || die "no vault at ~/vault/projects — nothing to sync"
+
+check_one() {
+    local name="$1"
+    local v; v="$(reg_field "$name" vault)"
+    [[ -n "$v" ]] || return 0
+    local vf="$HOME/vault/$v"
+    [[ -f "$vf" ]] || { warn "$name: vault/$v is missing"; return 1; }
+
+    local dir; dir="$(reg_abspath "$name")"
+    [[ -d "$dir/.git" ]] || return 0
+
+    local stamped head
+    stamped="$(awk -F'@' '/^synced-from:/ { print $2; exit }' "$vf" | tr -d ' ')"
+    head="$(git -C "$dir" rev-parse --short HEAD 2>/dev/null)" || return 0
+
+    if [[ -z "$stamped" ]]; then
+        warn "$name: never synced (no synced-from stamp)"
+        return 1
+    elif [[ "$stamped" != "$head" ]]; then
+        local n; n="$(git -C "$dir" rev-list --count "$stamped..HEAD" 2>/dev/null || echo '?')"
+        warn "$name: $n commit(s) since last sync ($stamped -> $head)"
+        return 1
+    fi
+    ok "$name: current"
+    return 0
+}
+
+stale=0
+if [[ -n "${1:-}" ]]; then
+    check_one "$1" || stale=1
+else
+    while read -r n; do [[ -n "$n" ]] && { check_one "$n" || stale=1; }; done < <(reg_names)
+fi
+
+if (( stale )); then
+    info ""
+    info "To refresh, dispatch an agent rooted in ~/vault following its"
+    info "project-sync skill (~/vault/.claude/skills/project-sync). It will:"
+    info "  - write only facts it can cite (git tag, pyproject.toml, STATUS.md)"
+    info "  - file anything evaluative as a '> NEEDS INPUT' line, never as prose"
+    info "  - leave the diff uncommitted for you to review"
+fi
+exit $stale

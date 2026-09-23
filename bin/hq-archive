@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Retire a project into the archive bucket that matches its current one.
+# usage: hq-archive <name> [--dry-run]
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+name="${1:-}"; dry="${2:-}"
+[[ -n "$name" ]] || die "usage: hq-archive <name> [--dry-run]"
+reg_has "$name" || die "not registered: $name"
+
+cur="$(reg_field "$name" path)"
+bucket="${cur%%/*}"
+arch="$(bucket_archive "$bucket")"
+[[ -n "$arch" ]] || die "bucket '$bucket' has no archive destination in layout.toml"
+
+"$HQ_ROOT/bin/hq-move" "$name" "$arch/$(basename "$cur")" ${dry:+--dry-run}
+[[ "$dry" == "--dry-run" ]] || reg_set_field "$name" status archived
+
+# Finishing a project is the moment it becomes describable, and the moment it
+# would otherwise never get written down.
+if [[ -d "$HOME/vault/projects" && "$(reg_field "$name" career)" != "no" ]]; then
+    info ""
+    info "$name is archived. Run 'hq-sync-vault $name' to refresh its vault entry."
+fi

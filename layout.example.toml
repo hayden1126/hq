@@ -1,0 +1,59 @@
+# The buckets ~/ is organised into. This file is the contract shared by the
+# bin/ scripts and the hq skill: change a bucket here, not in six places.
+#
+# This is the example. `hq-bootstrap` copies it to `layout.toml` (gitignored) on
+# a fresh machine; edit that copy. The buckets below are a sensible default; the
+# exempt list is deliberately minimal because it is per-machine (see the note by
+# the [[exempt]] entries).
+#
+# `registers` is optional and defaults to true: a bucket's immediate children are
+# each expected to be a registered project unless the bucket opts out.
+
+[buckets.code]
+path     = "code"
+holds    = "authored code, still open"
+archives = "archive/code"
+
+[buckets.writing]
+path     = "writing"
+holds    = "prose you authored, plus reading attached to no piece"
+archives = "archive/writing"
+
+[buckets.scratch]
+path     = "scratch"
+holds    = "throwaway; nothing here is expected to survive"
+archives = ""
+# Nothing here is expected to survive, so demanding a registry entry for it
+# would be paperwork on the one bucket defined as disposable. hq-audit reads
+# this rather than hardcoding the name.
+registers = false
+
+# Directories exempt from needing a registry entry, whether they sit beside the
+# buckets or inside one. Each needs a reason, because "it looked untidy" is how
+# things get broken.
+#
+# This list is PER-MACHINE. `hq` is here because it is this repo. `vault` is here
+# if you keep the optional career vault (docs/vault.md). Add your own tool-owned
+# top-level dirs the same way, each with the reason it must stay put, or `hq-audit`
+# will flag them as unregistered. Common examples, commented out — uncomment the
+# ones that exist on your machine:
+#
+#   [[exempt]]
+#   path   = "go"
+#   reason = "GOPATH default; relocating risks a silent re-create at the old path"
+#
+#   [[exempt]]
+#   path   = "sdk"
+#   reason = "SDK installs (android, flutter) referenced by per-project build config"
+#
+#   [[exempt]]
+#   path   = "writing/library"
+#   reason = "reading attached to no piece; never graduates to archive/"
+
+[[exempt]]
+path   = "hq"
+reason = "this repo"
+
+[[exempt]]
+path   = "vault"
+reason = "optional career knowledge base; a visible top-level slot makes never-publish enforceable by eye"

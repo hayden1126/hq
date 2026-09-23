@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Move a registered project and repair everything a bare `mv` would silently break.
+#
+# usage: hq-move <name> <dest-bucket-relative-path> [--dry-run]
+#   e.g. hq-move sourced code/sourced
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+name="${1:-}"; dest="${2:-}"; dry="${3:-}"
+[[ -n "$name" && -n "$dest" ]] || die "usage: hq-move <name> <dest> [--dry-run]"
+reg_has "$name" || die "not registered: $name (use hq-new, or add it to REGISTRY.md)"
+
+src="$(reg_abspath "$name")"
+dst="$HOME/$dest"
+[[ -d "$src" ]] || die "source does not exist: $src"
+[[ -e "$dst" ]] && die "destination already exists: $dst"
+
+run() { if [[ "$dry" == "--dry-run" ]]; then info "would: $*"; else "$@"; fi; }
+
+assert_no_processes_in "$src"
+
+info "moving $name: $src -> $dst"
+run mkdir -p "$(dirname "$dst")"
+run mv "$src" "$dst"
+
+# The registry answers "where is this project". That is true of the new path
+# the instant mv returns, so record it before the repairs rather than after:
+# a repair that dies under `set -e` must not leave the registry describing a
+# directory that is no longer there.
+if [[ "$dry" != "--dry-run" ]]; then
+    reg_set_field "$name" path "$dest"
+fi
+
+# --- repairs, in the order that matters ---
+
+# A dry run inspects the tree where it still is, otherwise it scans a path that
+# does not exist yet and reports a clean bill of health for every check below.
+scan="$dst"; [[ "$dry" == "--dry-run" ]] && scan="$src"
+
+# Virtualenvs hardcode their own absolute path in bin/activate and in every
+# console-script shebang. Rebuilding is the only honest fix; editing is not.
+# Unbounded depth on purpose: they are not always at the project root.
+# -print then dirname, not GNU find's `-printf '%h\n'` (BSD find has neither).
+while read -r cfg; do
+    [[ -n "$cfg" ]] || continue
+    venv="$(dirname "$cfg")"
+    warn "stale venv: ${venv#"$HOME"/} — rebuild it (rm -rf and uv sync / python -m venv)"
+done < <(find "$scan" \( -name .git -o -name node_modules \) -prune -o \
+              -name pyvenv.cfg -print 2>/dev/null)
+
+# Editable installs outside the project. site.py discards a .pth line naming a
+# missing directory with no warning, so these fail silently and get forgotten.
+# Match whole path components: a bare substring test would flag ~/bbs-old/src
+# while moving ~/bbs.
+for pth in "$HOME"/.local/lib/python*/site-packages/*.pth; do
+    [[ -e "$pth" ]] || continue
+    # `|| [[ -n "$line" ]]` because pip writes these without a trailing
+    # newline, and a bare read loop would drop the only line in the file.
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in
+            "$src"|"$src"/*)
+                warn "editable install points at the old path: ${pth#"$HOME"/}"
+                warn "  fix: sed -i 's|^$src|$dst|' ${pth/#$HOME/\~}"
+                break
+                ;;
+        esac
+    done < "$pth"
+done
+
+# Symlinks on PATH that point into the project tree, including one whose target
+# is the project root itself.
+for link in "$HOME"/.local/bin/*; do
+    [[ -L "$link" ]] || continue
+    target="$(readlink "$link")"
+    case "$target" in
+        "$src"|"$src"/*)
+            newtarget="$dst${target#"$src"}"
+            run ln -sfn "$newtarget" "$link"
+            if [[ "$dry" == "--dry-run" ]]; then
+                info "would: relink $(basename "$link") -> ${newtarget#"$HOME"/}"
+            else
+                ok "relinked $(basename "$link") -> ${newtarget#"$HOME"/}"
+            fi
+            ;;
+    esac
+done
+
+# Claude Code state, which is keyed by absolute path. A live session rewrites
+# ~/.claude.json from memory, so the migration has to wait — and the fact that
+# it is owed has to outlive this terminal.
+if claude_is_running; then
+    warn "Claude Code is running, so session history was NOT migrated."
+    if [[ "$dry" == "--dry-run" ]]; then
+        info "would: queue the migration in ${HQ_CC_QUEUE#"$HOME"/}"
+    else
+        cc_queue_append "$src" "$dst"
+        warn "  queued in ${HQ_CC_QUEUE#"$HOME"/}; quit every session, then run"
+        warn "  $HQ_ROOT/pending-cc-migration.sh"
+    fi
+else
+    run "$HQ_ROOT/bin/hq-migrate-cc-state" "$src" "$dst" ${dry:+--dry-run}
+fi
+
+if [[ "$dry" == "--dry-run" ]]; then
+    info "dry run: nothing was changed"
+else
+    ok "$name is now at ~/$dest"
+fi

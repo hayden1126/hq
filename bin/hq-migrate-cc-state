@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Move Claude Code's per-project state from one absolute path to another.
+#
+# Claude Code keys state two ways, and they are NOT congruent: object keys in
+# ~/.claude.json, and slug directories under ~/.claude/projects/ named by
+# cc_slug. A project can have one without the other, so each is handled
+# independently.
+#
+# Projects nest. A directory holding its own projects (loop-engineering holds
+# four) has a key per child, and renaming only the parent abandons the children
+# on paths that no longer exist. Every key at or under <old> moves.
+#
+# This CANNOT run while Claude Code is running: live sessions rewrite
+# ~/.claude.json from memory and would clobber the edit.
+#
+# usage: hq-migrate-cc-state <old-abs-path> <new-abs-path> [--dry-run]
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+old="${1:-}"; new="${2:-}"; dry="${3:-}"
+[[ -n "$old" && -n "$new" ]] || die "usage: hq-migrate-cc-state <old-abs-path> <new-abs-path> [--dry-run]"
+[[ "$old" == /* && "$new" == /* ]] || die "both paths must be absolute"
+
+if claude_is_running; then
+    die "Claude Code is running. Quit every session first — a live session will overwrite this edit."
+fi
+
+# The premise of every queued migration is that its source has already moved
+# away: hq-move moves the directory, then records the state migration. If <old>
+# exists again, it was reused by a new project (or the move never happened), so
+# replaying would move that project's keys and transcripts onto the old slug.
+# Skip loudly rather than clobber; the self-draining runner drops the dead line.
+if [[ -e "$old" ]]; then
+    warn "old path still exists: $old — reused or never moved; skipping to avoid clobbering its state."
+    exit 0
+fi
+
+run() { if [[ "$dry" == "--dry-run" ]]; then info "would: $*"; else "$@"; fi; }
+
+json="$HOME/.claude.json"
+projects_dir="$HOME/.claude/projects"
+
+# Every path that moves: the project itself, plus any nested project that has
+# its own key. The key set is the authority — matching slug directories by name
+# prefix cannot tell a child (loop-engineering/sandbox) from a sibling whose
+# name merely starts the same way (loop-engineeringX).
+# bash 3.2 (macOS) has no mapfile; read line-by-line into the array.
+paths=()
+while IFS= read -r p; do paths+=("$p"); done < <(
+    printf '%s\n' "$old"
+    [[ -f "$json" ]] && python3 - "$json" "$old" <<'PY'
+import json, sys
+path, old = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(open(path))
+except Exception:
+    raise SystemExit(0)
+for k in sorted(data.get('projects', {})):
+    if k.startswith(old.rstrip('/') + '/'):
+        print(k)
+PY
+)
+
+# 1. The .claude.json project keys, renamed in a single pass so there is one
+#    backup and one write regardless of how many nested projects there are.
+if [[ -f "$json" ]]; then
+    if [[ "$dry" == "--dry-run" ]]; then
+        for p in "${paths[@]}"; do
+            info "would: rename .claude.json key $p -> $new${p#"$old"}"
+        done
+    else
+        backup="$json.bak-$(date +%Y%m%d%H%M%S)"
+        cp "$json" "$backup"
+        renamed="$(python3 - "$json" "$old" "$new" <<'PY'
+import json, os, sys, tempfile
+path, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    data = json.load(f)
+projects = data.get('projects', {})
+moves = [k for k in projects if k == old or k.startswith(old.rstrip('/') + '/')]
+for k in moves:
+    dest = new + k[len(old):]
+    if dest in projects:
+        raise SystemExit(f'refusing to overwrite existing key: {dest}')
+for k in sorted(moves):
+    projects[new + k[len(old):]] = projects.pop(k)
+if moves:
+    # Write through a sibling temp file: a truncate-in-place that is
+    # interrupted leaves ~/.claude.json destroyed, not merely stale.
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or '.')
+    with os.fdopen(fd, 'w') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+    os.replace(tmp, path)
+print(len(moves))
+PY
+)"
+        if [[ "$renamed" == 0 ]]; then
+            rm -f "$backup"
+            info "no .claude.json key for $old — skipping"
+        else
+            ok "renamed $renamed .claude.json key(s) (backup: $(basename "$backup"))"
+        fi
+    fi
+else
+    info "no .claude.json — skipping keys"
+fi
+
+# 2. The transcript slug directories, and 3. the memory files inside them,
+#    which quote absolute project paths in prose. A stale memory file is worse
+#    than a dead symlink: it reads as fact.
+moved_any=0
+for p in "${paths[@]}"; do
+    slug_old="$projects_dir/$(cc_slug "$p")"
+    slug_new="$projects_dir/$(cc_slug "$new${p#"$old"}")"
+    [[ -d "$slug_old" ]] || continue
+    [[ -e "$slug_new" ]] && die "destination slug already exists: $slug_new"
+    run mv "$slug_old" "$slug_new"
+    ok "moved transcripts: $(basename "$slug_old") -> $(basename "$slug_new")"
+    moved_any=1
+
+    if [[ "$dry" == "--dry-run" ]]; then
+        info "would: rewrite $old -> $new in $(basename "$slug_new")/memory/*.md"
+    else
+        while IFS= read -r m; do
+            [[ -n "$m" ]] || continue
+            grep -qF "$old" "$m" || continue
+            hq_sed_inplace "s|$old|$new|g" "$m"
+            ok "rewrote paths in memory/$(basename "$m")"
+        done < <(find "$slug_new/memory" -maxdepth 1 -name '*.md' 2>/dev/null)
+    fi
+done
+[[ $moved_any == 1 ]] || info "no transcript directory for $old — skipping"

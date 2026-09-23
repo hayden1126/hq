@@ -1,0 +1,45 @@
+# This machine's state. Names client work and points at the career vault;
+# never publish any of it. REGISTRY.example.md ships the format instead.
+REGISTRY.md
+REGISTRY.md.*
+STATUS.md
+pending-cc-migration.tsv
+
+# The charter and the layout rulebook are per-machine: the charter's examples name
+# your own sources/flows, and the exempt list names your machine's tool dirs.
+# CLAUDE.example.md and layout.example.toml ship the format; hq-bootstrap seeds
+# the real files from them.
+CLAUDE.md
+layout.toml
+
+# External sources: this machine's personal MCP wiring. Names accounts and holds
+# no secrets (tokens live in ~/.secrets.env and per-account credential dirs), but
+# it is machine state, not the shareable format. The example files ship instead.
+.mcp.json
+SOURCES.md
+FLOWS.md
+FLOWS.md.*
+.claude/settings.local.json
+
+# Resources: cloud accounts, credits, subscriptions. Names account IDs and balances.
+# The example file ships the format instead.
+RESOURCES.md
+RESOURCES.md.*
+
+# The pre-publish denylist names your private strings (emails, account ids, private
+# project names), so it is per-machine. .publish-denylist.example ships the format.
+.publish-denylist
+
+# Local, machine-only docs (diagnostics, ops runbooks): the whole folder is ignored,
+# so drop any new one in docs/local/ without touching this file again.
+docs/local/
+
+# Per-machine Claude Code hooks (they reference this machine's own sources and memory).
+.claude/hooks/
+__pycache__/
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/

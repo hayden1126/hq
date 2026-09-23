@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Register a directory that already exists, which is how a clone becomes a
+# project. hq-new is the other half of this: it demands the directory NOT exist
+# and scaffolds one, so neither command can adopt what the other creates.
+#
+# usage: hq-register <name> <path> [summary...]
+#   e.g. hq-register pageindex code/pageindex "Upstream clone, read-only."
+#
+# The "~/…" strings below are literal display text (the registry convention is
+# $HOME-relative paths shown as ~/), not paths meant to expand. Hence:
+# shellcheck disable=SC2088
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+name="${1:-}"; path="${2:-}"
+[[ -n "$name" && -n "$path" ]] || die "usage: hq-register <name> <path> [summary...]"
+shift 2
+summary="$*"
+
+# Registry paths are $HOME-relative so the file survives $HOME itself moving.
+# An absolute path recorded here rots the first time anything moves.
+path="${path%/}"
+case "$path" in
+    /*|"~"*) die "path must be \$HOME-relative, not absolute: $path" ;;
+    *..*)    die "path must not traverse: $path" ;;
+esac
+
+reg_has "$name" && die "already registered: $name"
+[[ -d "$HOME/$path" ]] || die "no directory at ~/$path (hq-new creates one; this adopts one)"
+
+# One directory with two entries is how the registry starts lying, so refuse
+# rather than warn. Name the entry that already owns it: without that you have
+# to grep a gitignored file to find out what you collided with.
+owner="$(awk -v want="$path" '
+    /^## / { n = $2 }
+    /^- path:[[:space:]]*/ { sub(/^- path:[[:space:]]*/, ""); if ($0 == want) { print n; exit } }
+' "$HQ_REGISTRY")"
+[[ -z "$owner" ]] || die "~/$path is already registered as '$owner'"
+
+# Warn rather than refuse when it sits outside a bucket: cloning to ~/thing and
+# then hq-move'ing it in is a legitimate two-step, and hq-audit reports that
+# interim state accurately ("registered but still at top level").
+roots=()
+while read -r b; do
+    [[ -n "$b" ]] || continue
+    roots+=("$b")
+    a="$(bucket_archive "$b")"
+    [[ -n "$a" ]] && roots+=("$a")
+done < <(buckets)
+in_bucket=0
+for r in "${roots[@]}"; do
+    case "$path" in "$r"/*) in_bucket=1; break ;; esac
+done
+(( in_bucket )) || warn "~/$path is not inside a bucket — hq-move it in once it is registered"
+
+# Routing reads whichever of these exist, so record what is actually there
+# instead of guessing. Order is most-specific first, matching how the entries
+# already in the registry are written.
+docs=""
+for f in CLAUDE.md STATUS.md SPEC.md PLAN.md README.md; do
+    [[ -f "$HOME/$path/$f" ]] || continue
+    docs+="${docs:+, }$f"
+done
+
+require_registry
+{
+    printf '\n## %s\n' "$name"
+    printf -- '- path: %s\n' "$path"
+    printf -- '- status: active\n'
+    [[ -n "$docs" ]] && printf -- '- docs: %s\n' "$docs"
+    printf -- '- summary: %s\n' "$summary"
+} >> "$HQ_REGISTRY"
+
+ok "registered $name -> ~/$path"
+[[ -n "$docs" ]] && info "  docs: $docs"
+[[ -n "$summary" ]] || info "  fill in the summary in REGISTRY.md, or routing cannot match it."
+# Deliberately not chosen for you: career: is a forcing function, and a default
+# would answer it silently for a project you did mean to write up.
+[[ -d "$HOME/vault/projects" ]] &&
+    info "  add 'career: no' or 'vault: projects/<slug>.md', or hq-audit keeps asking."
+exit 0

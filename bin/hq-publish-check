@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Pre-publish gate. Fails if private data would reach a published file, or if a
+# private file is not gitignored. Run before making the repository public.
+#
+# "Publishable" means the set `git add -A` would stage: tracked files plus
+# untracked-but-not-ignored ones. Every gitignored private map is excluded by
+# construction, so this scans exactly what a push would expose.
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+cd "$HQ_ROOT" || die "cannot cd to $HQ_ROOT"
+command -v git >/dev/null 2>&1 || die "git is required"
+git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository: $HQ_ROOT"
+
+fail=0
+
+# The publishable file set: what `git add -A` would stage.
+publishable=()
+while IFS= read -r f; do
+    publishable+=("$f")
+done < <(git ls-files --cached --others --exclude-standard)
+
+# 1. Private strings that must never reach a published file. These are
+#    user-specific (your account addresses, account ids, private project or
+#    client names), so they live in a gitignored `.publish-denylist` — one
+#    extended-regex per line, `#` comments and blank lines ignored — NOT in this
+#    published script, which would otherwise leak them itself. See
+#    `.publish-denylist.example` for the format.
+info "== scanning publishable files for private strings =="
+denylist="$HQ_ROOT/.publish-denylist"
+if [[ -f "$denylist" ]]; then
+    patterns=()
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// /}" ]] && continue
+        patterns+=("$line")
+    done < "$denylist"
+    leaked=0
+    for pat in "${patterns[@]}"; do
+        hits=""
+        for f in "${publishable[@]}"; do
+            [[ -f "$f" ]] || continue
+            m="$(grep -IniE -- "$pat" "$f" 2>/dev/null)" || continue
+            [[ -n "$m" ]] && hits+="  $f: $m"$'\n'
+        done
+        if [[ -n "$hits" ]]; then
+            warn "leak: '$pat' found in:"
+            printf '%s' "$hits" >&2
+            fail=1; leaked=1
+        fi
+    done
+    [[ $leaked == 0 ]] && ok "no private strings in publishable files (${#patterns[@]} patterns)"
+else
+    warn "no .publish-denylist — copy .publish-denylist.example to .publish-denylist and add"
+    warn "your private strings to enable the string scan. Structural checks still run below."
+fi
+
+# 2. Every private file must be gitignored, so it can never be added by accident.
+info ""
+info "== private files must be gitignored =="
+private=(REGISTRY.md SOURCES.md FLOWS.md RESOURCES.md STATUS.md .mcp.json \
+         CLAUDE.md layout.toml pending-cc-migration.tsv .claude/settings.local.json \
+         .publish-denylist)
+allignored=1
+for f in "${private[@]}"; do
+    git check-ignore -q -- "$f" && continue
+    if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
+        warn "TRACKED private file: $f — must be gitignored"
+    else
+        warn "not gitignored: $f — add it to .gitignore"
+    fi
+    fail=1; allignored=0
+done
+[[ $allignored == 1 ]] && ok "all private files are gitignored"
+
+# 3. Every private file must ship a generic example twin in its place.
+info ""
+info "== each private file has a shipped example twin =="
+missing=0
+for twin in REGISTRY.example.md SOURCES.example.md FLOWS.example.md \
+            RESOURCES.example.md CLAUDE.example.md layout.example.toml \
+            .mcp.example.json .publish-denylist.example; do
+    [[ -f "$twin" ]] || { warn "missing example twin: $twin"; fail=1; missing=1; }
+done
+[[ $missing == 0 ]] && ok "all example twins present"
+
+info ""
+if [[ $fail == 0 ]]; then ok "publish check passed"; else die "publish check FAILED — do not publish"; fi

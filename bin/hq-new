@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Scaffold a project into a bucket and register it, so an unregistered
+# directory is always a mistake rather than a normal state.
+# usage: hq-new <name> [bucket] [--git]
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+name="${1:-}"; bucket="${2:-code}"; want_git="${3:-}"
+[[ -n "$name" ]] || die "usage: hq-new <name> [bucket] [--git]"
+buckets | grep -qxF "$bucket" || die "unknown bucket: $bucket (have: $(buckets | tr '\n' ' '))"
+reg_has "$name" && die "already registered: $name"
+
+dir="$HOME/$bucket/$name"
+[[ -e "$dir" ]] && die "already exists: $dir"
+
+mkdir -p "$dir"
+cat > "$dir/STATUS.md" <<EOF
+# $name — status
+
+**Current state:** just created, nothing built yet.
+
+**Next step:**
+
+**Notes:**
+EOF
+[[ "$want_git" == "--git" ]] && git -C "$dir" init -q && ok "git initialised"
+
+require_registry
+cat >> "$HQ_REGISTRY" <<EOF
+
+## $name
+- path: $bucket/$name
+- status: active
+- docs: STATUS.md
+- summary:
+EOF
+
+ok "created ~/$bucket/$name and registered it"
+info "fill in the summary in REGISTRY.md so routing can find it."

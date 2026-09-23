@@ -1,0 +1,20 @@
+# Private strings that must never reach a published file, one extended-regex per
+# line. Blank lines and lines beginning with # are ignored; matching is
+# case-insensitive. `hq-publish-check` scans the publishable file set against
+# these before you make the repo public.
+#
+# These are YOUR values, so this file ships only as an example. Copy it to
+# `.publish-denylist` (gitignored) and replace the lines below with your own:
+# every email you use, any cloud/account IDs, and the names of private or client
+# projects that must not appear in public docs, comments, or examples.
+#
+# Do NOT list your own name here — attribution in LICENSE and README is expected
+# and would only produce false positives.
+#
+# Escape a literal dot as [.] so it does not match any character:
+#
+#   you@example[.]com
+#   you@work[.]edu
+#   0000-0000-0000
+#   private-client-name
+#   secret-project-slug
