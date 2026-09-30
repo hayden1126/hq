@@ -1,5 +1,5 @@
 {
-  "_comment": "Format for the gitignored .mcp.json. Copy to .mcp.json and adjust (server names here are generic roles: personal/work/club). No secrets go here: ${VAR} refs are expanded from the shell that launched Claude Code (put the two tokens in ~/.secrets.env, which .zshrc already sources). These servers are project-scoped, so they load only in an hq session. See docs/external-sources-setup.md.",
+  "_comment": "Format for the gitignored .mcp.json. Copy to .mcp.json and adjust (server names here are generic roles: personal/work/club). No secrets go here. Secrets live in ~/.secrets.env, which no shell exports: each server that needs one starts through bin/hq-mcp-env, which reads the file and passes the server only the names listed before `--` (NAME=SOURCE renames). These servers are project-scoped, so they load only in an hq session. See docs/external-sources-setup.md.",
 
   "mcpServers": {
     "notion": {
@@ -8,41 +8,32 @@
     },
     "notion-write": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@notionhq/notion-mcp-server"],
-      "env": {
-        "NOTION_TOKEN": "${HQ_NOTION_WRITE_TOKEN}"
-      }
+      "command": "${HOME}/hq/bin/hq-mcp-env",
+      "args": ["NOTION_TOKEN=HQ_NOTION_WRITE_TOKEN", "--", "npx", "-y", "@notionhq/notion-mcp-server"]
     },
     "gw-personal": {
       "type": "stdio",
-      "command": "uvx",
-      "args": ["workspace-mcp", "--transport", "stdio", "--single-user", "--permissions", "gmail:readonly", "calendar:readonly"],
+      "command": "${HOME}/hq/bin/hq-mcp-env",
+      "args": ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "--", "uvx", "workspace-mcp", "--transport", "stdio", "--single-user", "--permissions", "gmail:readonly", "calendar:readonly"],
       "env": {
-        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
-        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
         "WORKSPACE_MCP_CREDENTIALS_DIR": "${HOME}/.google_workspace_mcp/personal",
         "WORKSPACE_MCP_PORT": "8110"
       }
     },
     "gw-work": {
       "type": "stdio",
-      "command": "uvx",
-      "args": ["workspace-mcp", "--transport", "stdio", "--single-user", "--permissions", "gmail:readonly", "calendar:readonly"],
+      "command": "${HOME}/hq/bin/hq-mcp-env",
+      "args": ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "--", "uvx", "workspace-mcp", "--transport", "stdio", "--single-user", "--permissions", "gmail:readonly", "calendar:readonly"],
       "env": {
-        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
-        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
         "WORKSPACE_MCP_CREDENTIALS_DIR": "${HOME}/.google_workspace_mcp/work",
         "WORKSPACE_MCP_PORT": "8111"
       }
     },
     "gw-club": {
       "type": "stdio",
-      "command": "uvx",
-      "args": ["workspace-mcp", "--transport", "stdio", "--single-user", "--permissions", "gmail:readonly", "calendar:readonly"],
+      "command": "${HOME}/hq/bin/hq-mcp-env",
+      "args": ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "--", "uvx", "workspace-mcp", "--transport", "stdio", "--single-user", "--permissions", "gmail:readonly", "calendar:readonly"],
       "env": {
-        "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
-        "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
         "WORKSPACE_MCP_CREDENTIALS_DIR": "${HOME}/.google_workspace_mcp/club",
         "WORKSPACE_MCP_PORT": "8112"
       }

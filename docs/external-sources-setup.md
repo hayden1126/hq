@@ -7,8 +7,8 @@ anything. This walkthrough wires three accounts under the generic roles `persona
 `club` (matching `.mcp.example.json`); use as few or as many as you need.
 
 Everything here is done outside Claude Code except the two `/mcp` authorizations in step 5 and 7.
-Nothing below puts a secret into the repo: the two API tokens go in `~/.secrets.env` (already sourced
-by `~/.zshenv`), OAuth tokens land in per-account credential dirs and Claude Code's own store.
+Nothing below puts a secret into the repo: the two API tokens go in `~/.secrets.env`, OAuth tokens
+land in per-account credential dirs and Claude Code's own store.
 
 The servers are declared in `~/hq/.mcp.json` and load only in an hq session (project scope). After
 editing config, start a fresh hq session so it picks the servers up; project servers prompt once for
@@ -26,10 +26,23 @@ export GOOGLE_OAUTH_CLIENT_SECRET="…"    # from step 4
 export HQ_NOTION_WRITE_TOKEN="ntn_…"     # from step 6
 ```
 
-These are read by `${VAR}` expansion in `.mcp.json`. They reach the MCP subprocesses because
-`~/.zshenv` sources `~/.secrets.env` and Claude Code inherits that shell's environment. The line lives
-in `.zshenv`, not `.zshrc`, on purpose: `.zshrc` is read for interactive shells only, so a `claude`
-launched from any non-interactive context would otherwise inherit the unexpanded `${VAR}` placeholder.
+No shell sources this file. Each server that needs a secret starts through `bin/hq-mcp-env`, which
+reads the file and passes the server only the names listed before `--`:
+
+```json
+"command": "${HOME}/hq/bin/hq-mcp-env",
+"args": ["NOTION_TOKEN=HQ_NOTION_WRITE_TOKEN", "--", "npx", "-y", "@notionhq/notion-mcp-server"]
+```
+
+`NAME=SOURCE` renames a variable for a server that expects a different name. A missing secret
+makes the wrapper exit 78, so the server shows as failed in `/mcp` rather than starting without it.
+
+Why not export the file from `~/.zshenv`: Claude Code inherits whatever the launching shell
+exports, and so does everything it starts: its Bash tool, its subagents, and Codex. An exported
+token is one `printenv` away from any delegated agent. MCP servers run outside Claude Code's
+sandbox, so the wrapper can still read the file when the sandbox denies it to Bash. For a one-off
+command that needs a secret, `withsecrets <command>` (defined in `~/.zshrc`) runs it in a subshell
+with the file loaded.
 
 ---
 

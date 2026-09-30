@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Run a command (an MCP server) with only the secrets it names, read from ~/.secrets.env.
+#
+# The secrets are not exported into login shells: Claude Code, its Bash tool and its subagents
+# inherit whatever a shell exports, so a secret that every shell holds is readable by any agent.
+# Only the server that needs a value gets it, through this wrapper in .mcp.json. MCP servers run
+# outside Claude Code's sandbox, so they can read the file even though sandboxed commands can't.
+#
+# Every other secret the file defines is unset before exec, so a copy inherited from an older
+# shell doesn't reach the server either.
+#
+# usage: hq-mcp-env NAME[=SOURCE]... -- command [args...]
+#   NAME          export NAME with the value of NAME from the secrets file
+#   NAME=SOURCE   export NAME with the value of SOURCE (the server expects a different name)
+set -euo pipefail
+
+secrets="$HOME/.secrets.env"
+die() { echo "hq-mcp-env: $*" >&2; exit 78; }
+
+maps=()
+while [ $# -gt 0 ] && [ "$1" != "--" ]; do maps+=("$1"); shift; done
+[ "${1:-}" = "--" ] && [ $# -gt 1 ] || { echo "usage: hq-mcp-env NAME[=SOURCE]... -- command [args...]" >&2; exit 64; }
+shift
+[ -r "$secrets" ] || die "$secrets is missing or unreadable"
+
+names=$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$secrets")
+set -a
+# shellcheck source=/dev/null
+. "$secrets"
+set +a
+
+ident='^[A-Za-z_][A-Za-z0-9_]*$'
+declare -A want=()
+for m in "${maps[@]}"; do
+    target=${m%%=*}; source=${m#*=}
+    [[ $target =~ $ident && $source =~ $ident ]] || die "bad mapping: $m"
+    [ -n "${!source-}" ] || die "$source is not set in $secrets"
+    want[$target]=${!source}
+done
+
+for n in $names; do unset "$n"; done
+for t in "${!want[@]}"; do export "$t=${want[$t]}"; done
+exec "$@"
