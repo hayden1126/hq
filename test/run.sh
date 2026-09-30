@@ -911,6 +911,24 @@ test_state_sync_ignores_new_files_outside_tracked_dirs() {
     assert_eq "$(state_git ls-files)" "REGISTRY.md" "no new location adopted"
 }
 
+# Inside the Claude Code sandbox, find -type f lists a /dev/null mount as a
+# regular file (it reads the entry under the mount), and git refuses to add it.
+# No bind mount without root, so a find on PATH lists a link to /dev/null instead.
+test_state_sync_skips_entries_that_are_not_regular_files() {
+    "$BIN/hq-bootstrap" >/dev/null
+    rm -rf "$T/hq/docs/local"; mkdir -p "$T/hq/docs/local" "$T/fakebin"; echo one > "$T/hq/docs/local/a.md"
+    "$BIN/hq-state" init >/dev/null
+    "$BIN/hq-state" add docs/local/a.md >/dev/null
+    "$BIN/hq-state" commit -qm base
+    ln -s /dev/null "$T/hq/docs/local/stub"; echo two > "$T/hq/docs/local/b.md"
+    # shellcheck disable=SC2016  # $1 belongs to the fake find, not to this shell
+    { echo '#!/bin/sh'; echo "$(command -v find) \"\$@\""
+      echo '[ "$1" = docs/local ] && echo docs/local/stub; exit 0'; } > "$T/fakebin/find"
+    chmod +x "$T/fakebin/find"
+    PATH="$T/fakebin:$PATH" assert_ok "$BIN/hq-state" sync
+    assert_eq "$(state_git ls-files | sort | tr '\n' ' ')" "docs/local/a.md docs/local/b.md " "device skipped, real file adopted"
+}
+
 test_state_sync_is_a_noop_when_clean() {
     "$BIN/hq-bootstrap" >/dev/null
     "$BIN/hq-state" init >/dev/null
