@@ -15,32 +15,26 @@ rulebook. Read `~/hq/CLAUDE.md` for the full charter.
    (`STATUS.md`, `SPEC.md`, `PLAN.md`, `CLAUDE.md`, `README.md` — four entries here name only a
    README). Most questions end here — do not spawn an agent
    to read three markdown files.
-3. **Dispatch when there is real work to do.** Launch an agent whose working root is the project
-   directory, and let that project's own `CLAUDE.md` govern it. Do not answer on its behalf from
-   outside. **Check the target for its own `.claude/skills/` and `.claude/commands/`; if one fits the
-   task, hand the agent that `SKILL.md` path to follow AND have it run from the project root** — these
-   skills issue bare repo-root commands (`npm run …`, `node tools/…`, `.venv/bin/python`), so reading
-   the file is not enough: the agent's working directory has to be the project, or those paths resolve
-   against hq and fail. (Project skills do not load here or in the agent, see the note below.) This
-   holds for every project, not just `~/vault`.
+3. **Hand real work off to a session in the project.** Write the plan into the project's own
+   `PLAN.md` (and its next step into `STATUS.md`), then run `hq-open <project>`: it opens an
+   interactive Claude Code session rooted there, governed by that project's `CLAUDE.md`, in a
+   background tmux window. Do not use a subagent for this. A subagent shares hq's cwd, sandbox write
+   roots and worktree base, so it can't run Bash writes in the project or isolate a writer there.
+   The new session also loads the project's own skills, which nothing started from hq does. Do not
+   answer on the project's behalf from outside.
 4. **Never guess a path.** If nothing matches, say so and offer to register it.
 
 Career, CV, and application questions route to `~/vault`. Its `CLAUDE.md` is stricter than this one
-and takes precedence there. To draft the answers, dispatch a `~/vault` agent that follows
-`~/vault/.claude/skills/answering-applications/SKILL.md` (seven-move recon + style anchor + the vault
-gate), the same read-the-`SKILL.md`-by-path move used for `project-sync`.
+and takes precedence there. Drafting application answers is real work, so it goes through
+`hq-open vault`, where `answering-applications` (seven-move recon + style anchor + the vault gate)
+loads as a skill.
 
-**Project-scoped skills don't load in an hq session — point the agent at the file.** A project's own
-`.claude/skills/` and `.claude/commands/` never load here (the rule is general: any project that
-carries its own skills, such as `~/vault` or a `code/<project>` with a `.claude/skills/` folder), and a dispatched agent does not
-pick them up from the directory you root it in
-either, so neither can auto-trigger nor `Skill`-invoke them. Use one by handing the dispatched agent
-the `SKILL.md` path and telling it to follow it (as just above for `~/vault`); reading it as a file
-needs no setup, and (per step 3) the agent runs from the project root so the skill's own `npm run` /
-`node tools/…` commands resolve. The alternative, only when you want a project's skills loaded and auto-triggering in
-the hq session itself, is for the user to `/add-dir <project>` (`--add-dir`/`/add-dir` load a
-directory's skills and commands; the `settings.json` `additionalDirectories` key does not, and an
-added skill can still mis-resolve project-relative paths from hq's cwd).
+**Project-scoped skills don't load in an hq session, or in an agent it dispatches.** A project's own
+`.claude/skills/` and `.claude/commands/` load only in a session rooted in that project, which is
+what `hq-open` gives you. Subagents stay for reads and declared flows. When a flow's or vault
+sync's agent needs a project skill, hand it the `SKILL.md` path and tell it to follow it, running
+from the project root so the skill's repo-root commands (`npm run …`, `node tools/…`) resolve. The
+same by-path move serves `project-sync` below.
 
 ## External sources
 

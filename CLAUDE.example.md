@@ -12,8 +12,12 @@ You are the hub for this home directory. Two jobs: **route** questions to the ri
 1. Read `REGISTRY.md` and match the question to an entry.
 2. If the answer is in that project's durable docs (`CLAUDE.md`, `STATUS.md`, `SPEC.md`, `PLAN.md`),
    read them and answer directly. Most questions end here.
-3. If it needs real work in the project, dispatch an agent rooted in that project's directory and
-   let that project's own `CLAUDE.md` govern it. Do not answer on its behalf from out here.
+3. If it needs real work in the project, hand it off: write the plan into the project's own
+   `PLAN.md` (and its next step into `STATUS.md`), then `hq-open <project>` opens an interactive
+   session rooted there, governed by that project's own `CLAUDE.md`. Do not use a subagent for
+   this: a subagent from hq shares hq's cwd, sandbox write roots and worktree base, so it can't run
+   Bash writes in the project or isolate a writer there. Subagents stay for reads and declared
+   flows. Do not answer on the project's behalf from out here.
 4. If nothing matches, say so and offer to register it. Never guess a path.
 
 Career, CV, and application questions route to `vault` (an optional external knowledge base; see the
@@ -106,6 +110,14 @@ format. Optional: a fresh clone has none.
   repo-specific case of the vault gate; a flow into vault applies the same gate from any source.
 - `hq-flow [name]` resolves a declared cross-home flow to the source, target, and governing rules an
   agent needs. It only prints — it never reads a source, calls MCP, or dispatches.
+- `hq-open [--focus] [--print] <project> [prompt]` opens a Claude Code session rooted in a
+  registered project (or vault) in a background tmux window. Without a prompt, it tells the session
+  to read the project's `STATUS.md` and `PLAN.md` and continue. It is routing step 3's handoff.
+- **If Claude Code's Bash sandbox is on,** an hq session's Bash writes only inside hq plus the paths
+  in `sandbox.filesystem.allowWrite` (`.claude/settings.local.json`), so list each flow's target
+  there. hq's writing tools (`hq-new`, `hq-move`, `hq-archive`, `hq-register`, `hq-state`, `hq-open`)
+  need user-tier `sandbox.excludedCommands` entries (`hq-new *` and so on), the only tier that honors
+  exclusions. Run each as one bare command: a pipe or `&&` keeps it sandboxed, where it fails.
 - Two repos share this directory. Code changes are ordinary commits to the code repo; the pre-push
   hook runs `hq-publish-check` and blocks a leak. Changes to the gitignored private files go to the
   private overlay instead: `hq-state sync --push "..."` (or `hq-state add <file>` for a new location). Never add a code file to
