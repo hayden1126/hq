@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Open an interactive Claude Code session rooted in a registered project, in a new tmux window.
+#
+# This is how hq hands real work to a project. hq writes the plan into the project's own durable
+# files (PLAN.md, STATUS.md), then opens a session rooted there. That session gets the project's
+# sandbox write roots, its CLAUDE.md and skills, and worktree isolation in its own repo. A
+# subagent dispatched from hq has none of these: it shares hq's cwd, sandbox and worktree base.
+#
+# Run it as one bare command (`hq-open <project>`). It is in the sandbox's excludedCommands because
+# tmux needs a unix socket, which the sandbox blocks; the new window is started by the tmux
+# server, so the session it runs is not sandboxed by this one and inherits tmux's environment.
+#
+# usage: hq-open [--focus] [--print] <project> [prompt]
+#   project   a REGISTRY.md name, or vault
+#   prompt    the new session's first message. Without one, a project that has STATUS.md or
+#             PLAN.md is told to read them and continue.
+#   --focus   switch to the new window (default: open it in the background)
+#   --print   print the tmux command instead of running it
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
+
+focus=0; dry=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --focus) focus=1; shift ;;
+        --print) dry=1; shift ;;
+        -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+        --) shift; break ;;
+        -*) die "unknown option: $1" ;;
+        *) break ;;
+    esac
+done
+[[ $# -ge 1 ]] || die "usage: hq-open [--focus] [--print] <project> [prompt]"
+name="$1"; shift
+prompt="$*"
+dir="$(flow_resolve_target "$name")" || die "$name is not a registered project (or vault) with a live path"
+
+if [[ -z "$prompt" ]]; then
+    have=""
+    for f in STATUS.md PLAN.md; do
+        [[ -f "$dir/$f" ]] && have="${have:+$have and }$f"
+    done
+    [[ -n "$have" ]] && prompt="Read $have, then continue with the next step they name."
+fi
+
+claude_bin="$(command -v claude)" || die "claude is not on PATH"
+set -- tmux new-window -P -F '#{session_name}:#{window_index} (#{window_name})' -c "$dir" -n "$name"
+[[ $focus -eq 1 ]] || set -- "$@" -d
+set -- "$@" -- "$claude_bin"
+[[ -n "$prompt" ]] && set -- "$@" "$prompt"
+
+if [[ $dry -eq 1 ]]; then
+    printf '%q ' "$@"; printf '\n'
+    exit 0
+fi
+[[ -n "${TMUX:-}" ]] || die "not inside tmux; run this instead: cd $(printf '%q' "$dir") && claude"
+win="$("$@")"
+ok "opened $name in tmux window $win"

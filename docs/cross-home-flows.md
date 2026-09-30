@@ -55,7 +55,8 @@ From an hq session:
 ## Adding or changing a flow
 
 Edit `FLOWS.md` (see `FLOWS.example.md` for the fields). Then `hq-flow <name>` to confirm both sides
-resolve. `hq-audit` validates every edge as part of its truth check: a flow whose source or target no
+resolve. A flow's agent is a subagent of the hq session and shares its sandbox, so add a new target
+to `sandbox.filesystem.allowWrite` in `.claude/settings.local.json`, or its Bash can't write there. `hq-audit` validates every edge as part of its truth check: a flow whose source or target no
 longer resolves to a live project, a known source server, or an existing path is reported as drift and
 the audit exits non-zero, the same way a dead registry path is. When a project is renamed, moved, or
 archived, update any flow that names it.
