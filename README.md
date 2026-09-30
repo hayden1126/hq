@@ -61,6 +61,8 @@ too: the PATH line points at wherever you cloned.
 | `hq-archive <name>` | active → archive, same repairs |
 | `hq-sync-vault [name]` | refresh observable facts in a career vault, if you keep one |
 | `hq-flow [name]` | resolve a declared cross-home flow to its source, target, and rules |
+| `hq-open <project> [prompt]` | hand work to a project: open a Claude Code session rooted there, in a background tmux window |
+| `hq-mcp-env NAME[=SOURCE]... -- <cmd>` | start an MCP server with only the secrets it names (used in `.mcp.json`) |
 | `hq-bootstrap` | create the buckets (run by `install.sh`) |
 | `hq-state <cmd>` | version the private files in a separate private repo (see below) |
 | `hq-publish-check` | pre-publish gate: no private strings, private files ignored, layers disjoint |
@@ -192,7 +194,9 @@ tools reach it) the way `REGISTRY.md` maps projects, and is gitignored for the s
 personal accounts. `SOURCES.example.md` ships the format. The MCP servers are declared in a gitignored
 `.mcp.json` (format in `.mcp.example.json`) scoped to the hq project, so they load only when you work
 in hq and never leak into other projects. No secrets enter the repo: OAuth tokens live in per-account
-credential dirs and Claude Code's own store, and the two API tokens live in `~/.secrets.env`.
+credential dirs and Claude Code's own store, and the two API tokens live in `~/.secrets.env`. No
+shell exports that file; each server that needs a token starts through `bin/hq-mcp-env`, which
+passes it only the names it lists.
 
 Posture is read-first, with one deliberate write exception: Notion writes to designated pages. Gmail
 and Calendar are read-only (no draft, no send). The one-time OAuth setup is in `docs/external-sources-setup.md`.
