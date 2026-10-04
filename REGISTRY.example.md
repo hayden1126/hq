@@ -5,7 +5,8 @@ directory move. This is the example; the real one is `REGISTRY.md` and is gitign
 
 Fields:
 - `path` — where it is right now, relative to `$HOME`. `hq-move` keeps this current.
-- `status` — `active` or `archived`.
+- `status` — `active`, `paused` (on hold in place, resume intended; `hq-audit` skips its quiet check), or
+  `archived` (moved under `archive/` by `hq-archive`).
 - `docs` — the files to read first when routing a question here.
 - `vault` — optional link into a career vault entry.
 - `career: no` — this project should never get a vault entry (client work, throwaway).
