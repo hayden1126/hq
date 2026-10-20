@@ -10,30 +10,42 @@
 # tmux needs a unix socket, which the sandbox blocks; the new window is started by the tmux
 # server, so the session it runs is not sandboxed by this one and inherits tmux's environment.
 #
-# usage: hq-open [--focus] [--print] <project> [prompt]
+# usage: hq-open [--focus] [--print] [--sub <dir>] <project> [prompt]
 #   project   a REGISTRY.md name, or vault
 #   prompt    the new session's first message. Without one, a project that has STATUS.md or
 #             PLAN.md is told to read them and continue.
 #   --focus   switch to the new window (default: open it in the background)
 #   --print   print the tmux command instead of running it
+#   --sub     root the session in this existing subdirectory of the project (a relative path
+#             that stays inside it, symlinks resolved), for work that keeps its own files there,
+#             such as an exam-prep root inside a course hub
 set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd)/lib/hq.sh"
 
-focus=0; dry=0
+focus=0; dry=0; sub=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --focus) focus=1; shift ;;
         --print) dry=1; shift ;;
+        --sub) [[ $# -ge 2 && -n "$2" ]] || die "--sub needs a directory"; sub="$2"; shift 2 ;;
         -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
         --) shift; break ;;
         -*) die "unknown option: $1" ;;
         *) break ;;
     esac
 done
-[[ $# -ge 1 ]] || die "usage: hq-open [--focus] [--print] <project> [prompt]"
+[[ $# -ge 1 ]] || die "usage: hq-open [--focus] [--print] [--sub <dir>] <project> [prompt]"
 name="$1"; shift
 prompt="$*"
 dir="$(flow_resolve_target "$name")" || die "$name is not a registered project (or vault) with a live path"
+label="$name"
+if [[ -n "$sub" ]]; then
+    [[ "$sub" != /* && "/$sub/" != */../* ]] || die "--sub takes a path inside $name: $sub"
+    root="$(cd "$dir" && pwd -P)"
+    target="$(cd "$dir/$sub" 2>/dev/null && pwd -P)" || die "$name has no directory $sub"
+    [[ "$target" == "$root"/* ]] || die "--sub $sub leaves $name"
+    dir="$target"; label="$name/${target#"$root"/}"
+fi
 
 if [[ -z "$prompt" ]]; then
     have=""
@@ -44,7 +56,7 @@ if [[ -z "$prompt" ]]; then
 fi
 
 claude_bin="$(command -v claude)" || die "claude is not on PATH"
-set -- tmux new-window -P -F '#{session_name}:#{window_index} (#{window_name})' -c "$dir" -n "$name"
+set -- tmux new-window -P -F '#{session_name}:#{window_index} (#{window_name})' -c "$dir" -n "$label"
 [[ $focus -eq 1 ]] || set -- "$@" -d
 set -- "$@" -- "$claude_bin"
 [[ -n "$prompt" ]] && set -- "$@" "$prompt"
@@ -55,4 +67,4 @@ if [[ $dry -eq 1 ]]; then
 fi
 [[ -n "${TMUX:-}" ]] || die "not inside tmux; run this instead: cd $(printf '%q' "$dir") && claude"
 win="$("$@")"
-ok "opened $name in tmux window $win"
+ok "opened $label in tmux window $win"

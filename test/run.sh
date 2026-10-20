@@ -1059,6 +1059,33 @@ test_install_wires_the_pre_push_hook_idempotently() {
     assert_eq "$(git -C "$T/hq" config --get-all core.hooksPath)" "hooks" "hooksPath set once"
 }
 
+test_open_print_roots_at_the_project() {
+    seed_registry; mkdir -p "$T/demo"
+    out="$("$BIN/hq-open" --print demo "go" 2>&1)"
+    assert_eq "$(printf '%s' "$out" | grep -c -- "-c $T/demo -n demo")" "1" "rooted at the project"
+}
+
+test_open_sub_roots_at_the_subdirectory() {
+    seed_registry; mkdir -p "$T/demo/exam-prep"
+    : > "$T/demo/exam-prep/STATUS.md"
+    out="$("$BIN/hq-open" --print --sub exam-prep demo 2>&1)"
+    assert_eq "$(printf '%s' "$out" | grep -c -- "-c $T/demo/exam-prep -n demo/exam-prep")" "1" \
+        "rooted at the subdirectory"
+    assert_eq "$(printf '%s' "$out" | grep -cF 'STATUS.md')" "1" "default prompt reads the subdir's STATUS"
+}
+
+test_open_sub_refuses_paths_that_leave_the_project() {
+    seed_registry; mkdir -p "$T/demo/inner" "$T/outside"
+    ln -s "$T/outside" "$T/demo/link"
+    assert_fails "$BIN/hq-open" --print --sub ../outside demo
+    assert_fails "$BIN/hq-open" --print --sub inner/../../outside demo
+    assert_fails "$BIN/hq-open" --print --sub "$T/demo/inner" demo
+    assert_fails "$BIN/hq-open" --print --sub link demo
+    assert_fails "$BIN/hq-open" --print --sub missing demo
+    assert_fails "$BIN/hq-open" --print --sub "" demo
+    assert_ok "$BIN/hq-open" --print --sub inner demo
+}
+
 # --- runner ---
 
 tests=$(declare -F | awk '{print $3}' | grep '^test_' | sort)
