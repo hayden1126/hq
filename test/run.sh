@@ -11,6 +11,15 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# A git worktree's .git is a file pointing at the main repository, and setup() copies the tree
+# with cp -r, so every git command a test runs in its copy would reach the real repository: the
+# pre-push tests commit there and force-set the private-history tag. Run from the main checkout
+# or a clone, whose .git is a directory of its own.
+if [[ -f "$REPO/.git" ]]; then
+    echo "test/run.sh: $REPO is a git worktree, whose tests would reach the main repository" \
+        "through its .git file; run them from the main checkout or a clone" >&2
+    exit 2
+fi
 FAILED=()
 
 # Each test runs in a subshell (see the runner), so the counters cannot live in
@@ -1084,6 +1093,17 @@ test_open_sub_refuses_paths_that_leave_the_project() {
     assert_fails "$BIN/hq-open" --print --sub missing demo
     assert_fails "$BIN/hq-open" --print --sub "" demo
     assert_ok "$BIN/hq-open" --print --sub inner demo
+}
+
+# A worktree's tests would reach the main repository (see the guard at the top), so the runner
+# refuses one before any test runs. Its run.sh is this tree's, uncommitted changes included.
+test_runner_refuses_a_git_worktree() {
+    local out rc
+    git -C "$T/hq" worktree add -q --detach "$T/wt" >/dev/null 2>&1 || { fail "git worktree add"; return; }
+    cp "$T/hq/test/run.sh" "$T/wt/test/run.sh"
+    out="$("$T/wt/test/run.sh" test_no_such_test 2>&1)"; rc=$?
+    assert_eq "$rc" "2" "exit code"
+    if grep -qF "is a git worktree" <<<"$out"; then pass; else fail "expected the worktree message, got: $out"; fi
 }
 
 # --- runner ---
