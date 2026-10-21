@@ -6,13 +6,15 @@ that way.
 ## Before you push
 
 ```bash
-./test/run.sh                                   # the full suite (plain shell, no deps)
+./test/run.sh                                   # the full suite (plain shell, no deps); not from a git worktree
 shellcheck bin/hq-* lib/hq.sh install.sh pending-cc-migration.sh hooks/pre-push
 ./bin/hq-publish-check                           # no private data in the publishable tree
 ```
 
 All three must pass. `hq-publish-check` also runs as part of `test/run.sh`, and the pre-push hook
-(`hooks/pre-push`, enabled by `install.sh`) runs it again on every push.
+(`hooks/pre-push`, enabled by `install.sh`) runs it again on every push. Run the suite from the main
+checkout or a clone: in a git worktree, `.git` is a file pointing at the main repository, so the tests'
+git commands would reach it, and the runner refuses (exit 2).
 
 ## Ground rules
 

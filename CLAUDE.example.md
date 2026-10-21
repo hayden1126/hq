@@ -110,9 +110,10 @@ format. Optional: a fresh clone has none.
   repo-specific case of the vault gate; a flow into vault applies the same gate from any source.
 - `hq-flow [name]` resolves a declared cross-home flow to the source, target, and governing rules an
   agent needs. It only prints — it never reads a source, calls MCP, or dispatches.
-- `hq-open [--focus] [--print] <project> [prompt]` opens a Claude Code session rooted in a
+- `hq-open [--focus] [--print] [--sub <dir>] <project> [prompt]` opens a Claude Code session rooted in a
   registered project (or vault) in a background tmux window. Without a prompt, it tells the session
   to read the project's `STATUS.md` and `PLAN.md` and continue. It is routing step 3's handoff.
+  `--sub` roots it in an existing subdirectory instead, for work that keeps its own conventions there.
 - **If Claude Code's Bash sandbox is on,** an hq session's Bash writes only inside hq plus the paths
   in `sandbox.filesystem.allowWrite` (`.claude/settings.local.json`), so list each flow's target
   there. hq's writing tools (`hq-new`, `hq-move`, `hq-archive`, `hq-register`, `hq-state`, `hq-open`)
