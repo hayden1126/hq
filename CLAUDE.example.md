@@ -61,9 +61,11 @@ The pattern is always the same, and never a mesh of project-to-project agents (n
 lives in a project; a peer-to-peer scheme would rot paths and launder permissions across sessions):
 
 1. **hq reads the source in this session** — MCP for Drive/email/Notion, the filesystem for a project
-   or vault. Materialize binaries (images, PDFs) to a path under the target.
+   or vault. Binaries (images, PDFs) stay where the tool saved them, or at a path under hq.
 2. **hq dispatches an agent rooted in the target**, governed by the target's own `CLAUDE.md` (or the
-   global one if it has none) plus its durable docs. The dispatched agent touches only the filesystem,
+   global one if it has none) plus its durable docs. If the target needs commands, and copying those
+   binaries in counts, hq opens a session there with `hq-open`, naming the paths in the prompt, and
+   that session copies them in. The dispatched agent touches only the filesystem,
    never the source's creds — so no flow needs a new permission, and a target never reaches up.
 3. **The target's rules govern the write.** A `vault` target takes the vault gate below: observable
    facts cited to the message, `> NEEDS INPUT` for anything evaluative, no commit, leave the diff.
@@ -114,9 +116,9 @@ format. Optional: a fresh clone has none.
   registered project (or vault) in a background tmux window. Without a prompt, it tells the session
   to read the project's `STATUS.md` and `PLAN.md` and continue. It is routing step 3's handoff.
   `--sub` roots it in an existing subdirectory instead, for work that keeps its own conventions there.
-- **If Claude Code's Bash sandbox is on,** an hq session's Bash writes only inside hq plus the paths
-  in `sandbox.filesystem.allowWrite` (`.claude/settings.local.json`), so list each flow's target
-  there. hq's writing tools (`hq-new`, `hq-move`, `hq-archive`, `hq-register`, `hq-state`, `hq-open`)
+- **If Claude Code's Bash sandbox is on,** an hq session's Bash writes only inside hq. A flow whose
+  target needs commands goes through `hq-open`; do not add its target to
+  `sandbox.filesystem.allowWrite`. hq's writing tools (`hq-new`, `hq-move`, `hq-archive`, `hq-register`, `hq-state`, `hq-open`)
   need user-tier `sandbox.excludedCommands` entries (`hq-new *` and so on), the only tier that honors
   exclusions. Run each as one bare command: a pipe or `&&` keeps it sandboxed, where it fails.
 - Two repos share this directory. Code changes are ordinary commits to the code repo; the pre-push

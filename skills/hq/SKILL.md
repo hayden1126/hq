@@ -62,11 +62,13 @@ the vault from an inbox) runs from an hq session, because hq holds the creds and
 1. `hq-flow <name>` — it prints the resolved source (and the tool to read it with), the target
    directory, the governing rules, and the scope. With no name it lists every flow.
 2. **Read the source here, in the hq session** — MCP for Drive/email/Notion, `Read` for a project or
-   vault file. Materialize binaries (flyers, PDFs) to a path under the target so a dispatched agent can
-   Read them as images.
+   vault file. Binaries (flyers, PDFs) stay where the tool saved them, or at a path under hq, and a
+   dispatched agent can Read them as images from there.
 3. **Dispatch an agent rooted in the target directory**, governed by the rules `hq-flow` named, with
    the fetched context or file paths inlined. It does the write under the target's own conventions and
-   touches only the filesystem — it never receives the source's creds.
+   touches only the filesystem — it never receives the source's creds. If the target needs commands,
+   and copying those binaries in counts, use `hq-open <target> "<prompt>"` instead, with the paths in
+   the prompt. That session copies them in.
 4. A `vault` target takes the vault gate (below). Leave the diff uncommitted; report what was written.
 
 Never wire it the other way: a project agent does not reach up to hq for a source. The creds are not

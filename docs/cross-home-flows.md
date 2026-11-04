@@ -44,10 +44,13 @@ From an hq session:
 1. `hq-flow <name>` to resolve the flow. It prints the resolved source (and the tool to read it with),
    the resolved target directory, the governing rules, and the scope. It never reads the source or
    dispatches anything itself.
-2. Read the source with the named tool, in this hq session. Materialize binary files (images, PDFs)
-   to a path under the target so a dispatched agent can Read them.
+2. Read the source with the named tool, in this hq session. Binary files (images, PDFs) stay where
+   the tool saved them, or at a path under hq. hq's Bash can't write in the target, so don't put them
+   there from this session.
 3. Dispatch an agent rooted in the target directory, governed by the rules `hq-flow` named, with the
    fetched context or file paths inlined. Let that agent do the write under the target's conventions.
+   If the target needs commands, and copying those files in counts, open a session there instead:
+   `hq-open <target> "<prompt>"`, with the paths in the prompt. That session copies the files in.
 4. For a `vault` target, leave the diff uncommitted for review. Report what was written.
 
 `hq-flow` with no argument lists every flow and marks any with a dead source or target `DEAD`.
@@ -55,10 +58,10 @@ From an hq session:
 ## Adding or changing a flow
 
 Edit `FLOWS.md` (see `FLOWS.example.md` for the fields). Then `hq-flow <name>` to confirm both sides
-resolve. A flow's agent is a subagent of the hq session and shares its sandbox, so add a new target
-to `sandbox.filesystem.allowWrite` in `.claude/settings.local.json`, or its Bash can't write there.
-That is fine for a flow's bounded write. Real work in a project goes through `hq-open` instead
-(routing step 3 in `CLAUDE.md`), so it runs in a session rooted there. `hq-audit` validates every edge as part of its truth check: a flow whose source or target no
+resolve. A flow's agent is a subagent of the hq session and shares its sandbox, so its Bash can't
+write in the target. Do not add the target to `sandbox.filesystem.allowWrite`: a flow whose target
+needs commands goes through `hq-open`, like real work in a project (routing step 3 in `CLAUDE.md`),
+so it runs in a session rooted there. `hq-audit` validates every edge as part of its truth check: a flow whose source or target no
 longer resolves to a live project, a known source server, or an existing path is reported as drift and
 the audit exits non-zero, the same way a dead registry path is. When a project is renamed, moved, or
 archived, update any flow that names it.
