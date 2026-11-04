@@ -29,7 +29,7 @@ laundering). Keeping hq the broker avoids all three.
 1. **Direction is always source -> target, brokered by hq.** A target never reaches up to a source.
    hq reads and hands context or files down.
 2. **Source reads happen only in the hq session.** The dispatched target agent touches the filesystem
-   alone: the materialized files plus the target's own tree. This keeps creds at hq and sidesteps any
+   alone: the files at the paths hq names plus the target's own tree. This keeps creds at hq and sidesteps any
    question of what MCP a dispatched agent inherits. No flow needs a new permission grant: every source
    is already read-only, every write is a local filesystem write in the target's own session.
 3. **The target's own rules govern the write.** For a `vault` target the vault gate applies (observable
