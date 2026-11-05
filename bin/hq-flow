@@ -3,7 +3,7 @@
 # run it, and print them.
 #
 # A flow is a directed source -> target: hq reads the SOURCE with its own creds,
-# then dispatches an agent rooted in the TARGET so the target's own rules govern
+# then opens a session in the TARGET with hq-open so the target's own rules govern
 # the write. This script only ever RESOLVES and PRINTS. It never reads a source,
 # never calls MCP, and never spawns an agent — that is the caller's job, done in
 # the hq session with the tools and cwd named here. FLOWS.md is the map; a flow's
@@ -80,9 +80,9 @@ show_one() {
     [[ -n "$scope" ]] && info "scope: $scope"
 
     info ""
-    info "dispatch (run from this hq session):"
+    info "run from this hq session:"
     info "  1. read the source with: $reader"
-    info "  2. dispatch an agent rooted in: $tabs"
+    info "  2. open a session with hq-open in: $tabs"
     info "     governed by: $(rules_for "$gov" "$tabs" "$tgt")"
     return 0
 }

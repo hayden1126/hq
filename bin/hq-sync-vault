@@ -47,7 +47,7 @@ fi
 
 if (( stale )); then
     info ""
-    info "To refresh, dispatch an agent rooted in ~/vault following its"
+    info "To refresh, open a session with hq-open vault following its"
     info "project-sync skill (~/vault/.claude/skills/project-sync). It will:"
     info "  - write only facts it can cite (git tag, pyproject.toml, STATUS.md)"
     info "  - file anything evaluative as a '> NEEDS INPUT' line, never as prose"

@@ -32,8 +32,8 @@ from your repos; the vault's job is to be the single source of truth for a CV or
 ## The vault gate (how writes happen)
 
 hq never writes vault prose directly. `hq-sync-vault` only **reports** what has fallen behind; the
-actual refresh is done by an agent dispatched into `~/vault` under the vault's own **`project-sync`
-skill** (`~/vault/.claude/skills/project-sync`), which you provide in your vault repo. That agent:
+actual refresh is done by a session opened with `hq-open vault` under the vault's own **`project-sync`
+skill** (`~/vault/.claude/skills/project-sync`), which you provide in your vault repo. That session:
 
 - writes only facts it can cite (a git tag, `pyproject.toml`, `STATUS.md`),
 - files anything evaluative as a `> NEEDS INPUT` line for you, never as prose,

@@ -1,9 +1,9 @@
 # Flows
 
 Directed cross-home data flows hq brokers, the way `REGISTRY.md` maps projects and `SOURCES.md` maps
-external sources. hq reads the SOURCE with its own creds/tools, then dispatches an agent rooted in the
-TARGET so the target's own rules govern the write. One block each. Direction is always source ->
-target: a target never reaches up to a source. This is the example; the real file is `FLOWS.md`,
+external sources. hq reads the SOURCE with its own creds/tools, then opens a session in the TARGET with
+`hq-open` so the target's own rules govern the write, file tools included (SW13). One block each.
+Direction is always source -> target: a target never reaches up to a source. This is the example; the real file is `FLOWS.md`,
 gitignored because it names real projects and accounts.
 
 Fields:

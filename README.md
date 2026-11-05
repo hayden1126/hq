@@ -203,8 +203,8 @@ and Calendar are read-only (no draft, no send). The one-time OAuth setup is in `
 
 ## Optional: cross-home flows
 
-hq can broker a directed flow between two homes: it reads a source with its own tools, then dispatches
-an agent rooted in the target so the target's own rules govern the write. That is how work spanning two
+hq can broker a directed flow between two homes: it reads a source with its own tools, then opens a
+session in the target with `hq-open` so the target's own rules govern the write. That is how work spanning two
 places gets done, pulling a connected Drive's files into a project, refreshing one project from another,
 feeding a vault from an inbox, without any project reaching into another or holding a credential it
 should not.

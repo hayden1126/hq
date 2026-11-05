@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Open an interactive Claude Code session rooted in a registered project, in a new tmux window.
 #
-# This is how hq hands real work to a project. hq writes the plan into the project's own durable
-# files (PLAN.md, STATUS.md), then opens a session rooted there. That session gets the project's
+# This is how hq hands real work to a project. hq puts the plan in the prompt and opens a session
+# rooted there, which writes its own PLAN.md and STATUS.md. That session gets the project's
 # sandbox write roots, its CLAUDE.md and skills, and worktree isolation in its own repo. A
 # subagent dispatched from hq has none of these: it shares hq's cwd, sandbox and worktree base.
 #
